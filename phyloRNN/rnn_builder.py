@@ -13,68 +13,101 @@ import scipy.stats
 from keras.layers import Activation
 from keras.utils.generic_utils import get_custom_objects
 
+class rnn_config():
+    def __init__(self,
+                 lstm_nodes: list = None,
+                 nn_phylo_features: int = 0,
+                 nn_shared_rate_tl: int = 64,
+                 nn_rate: list = None,
+                 nn_tl: list = None,
+                 nn_sub_model: list = None,
+                 n_eigenvec: int = 0,
+                 bidirectional_lstm = True,
+                 loss_weights: list = None,
+                 pool_per_site = True,
+                 output_list: list = None,
+                 mean_normalize_rates = True,
+                 layers_normalization = False,
+                 separate_block_nn = True,
+                 output_f: list = None,
+                 n_sites: int = 1000,
+                 n_taxa: int = 50,
+                 sub_models: list = None,
+                 ):
+
+        if lstm_nodes is None:
+            lstm_nodes = [128, 64]
+        if nn_rate is None:
+            nn_rate = [32]
+        if nn_tl is None:
+            nn_tl = [8]
+        if nn_sub_model is None:
+            nn_sub_model = [0]
+        if loss_weights is None:
+            loss_weights = [1, 1, 1]
+        if output_list is None:
+            output_list = ['per_site_rate', 'tree_len']
+        if output_f is None:
+            output_f = ['softplus', 'softmax', 'linear']
+        if sub_models is None:
+            sub_models = [0, 1, 2]  # ['JC', 'HKY', 'GTR']
+
+        self.lstm_nodes = lstm_nodes
+        self.nn_phylo_features = nn_phylo_features
+        self.nn_shared_rate_tl = nn_shared_rate_tl
+        self.nn_rate = nn_rate
+        self.nn_sub_model = nn_sub_model
+        self.nn_tl = nn_tl
+        self.n_eigenvec = n_eigenvec
+        self.bidirectional_lstm = bidirectional_lstm
+        self.loss_weights = loss_weights
+        self.pool_per_site = pool_per_site
+        self.output_list = output_list
+        self.mean_normalize_rates = mean_normalize_rates
+        self.layers_norm = layers_normalization
+        self.separate_block_nn = separate_block_nn
+        self.output_f = output_f
+
+        self.n_sites = n_sites
+        self.n_species = n_taxa
+        self.n_onehot = 4
+        self.sub_models = sub_models
 
 
-def build_nn_prm_share_rnn(n_sites, n_species,
-                           n_eigenvec=0,
-                           n_onehot=4,
-                           bidirectional_lstm=False,
-                           sub_models=None,
-                           loss_weights=None,
-                           nodes = None,
-                           output_list=None,
-                           output_f=None,
-                           pool_per_site=False,
-                           mean_normalize_rates=False,
+def build_nn_prm_share_rnn(model_config: rnn_config,
                            optimizer=keras.optimizers.RMSprop(1e-3)
                            ):
-    if output_list is None:
-        output_list = ['per_site_rate', 'tree_len']
-
-    if output_f is None:
-        output_f = ['linear', 'softmax','linear']
-
-    if nodes is None:
-        nodes = [64, # 0. sequence_LSTM_1
-                 8,  # 1. sequence_LSTM_2
-                 8,  # 2. phylo_FC_1 (dense on phylo features)
-                 12, # 3. site_NN (block-NN dense with shared prms)
-                 32, # 4. site_rate_hidden
-                 64, # 5. sub_model_hidden
-                 12, # 6. tree_len_hidden
-                 0   # 7. tree_len_hidden_2 (if > 0)
-                 ]
-    if loss_weights is None:
-        loss_weights = [1., 1., 1.]
-    ali_input = keras.Input(shape=(n_sites, n_species * n_onehot,), name="sequence_data")
-    if n_eigenvec:
-        phy_input = keras.Input(shape=(n_species * n_eigenvec,), name="eigen_vectors")
+    ali_input = keras.Input(shape=(model_config.n_sites, model_config.n_species * model_config.n_onehot,), name="sequence_data")
+    if model_config.n_eigenvec:
+        phy_input = keras.Input(shape=(model_config.n_species * model_config.n_eigenvec,), name="eigen_vectors")
         inputs = [ali_input, phy_input]
     else:
         inputs = [ali_input]
         phy_input = None
 
     # lstm on sequence data
-    if not bidirectional_lstm:
-        ali_rnn_1 = layers.LSTM(nodes[0], return_sequences=False, activation='tanh',
+    if not model_config.bidirectional_lstm:
+        ali_rnn_1 = layers.LSTM(model_config.lstm_nodes[0], return_sequences=False, activation='tanh',
                                 recurrent_activation='sigmoid', name="sequence_LSTM_1")(ali_input)
         ali_rnn_2 = None
-        if nodes[1] > 0:
-            ali_rnn_2 = layers.LSTM(nodes[1], return_sequences=False, activation='tanh',
-                                recurrent_activation='sigmoid', name="sequence_LSTM_2")(ali_rnn_1)
+        if len(model_config.lstm_nodes) > 1:
+            if model_config.lstm_nodes[1] > 0:
+                ali_rnn_2 = layers.LSTM(model_config.lstm_nodes[1], return_sequences=False, activation='tanh',
+                                        recurrent_activation='sigmoid', name="sequence_LSTM_2")(ali_rnn_1)
     else:
         ali_rnn_1 = layers.Bidirectional(
-            layers.LSTM(nodes[0], return_sequences=False, activation='tanh',
+            layers.LSTM(model_config.lstm_nodes[0], return_sequences=False, activation='tanh',
                         recurrent_activation='sigmoid', name="sequence_LSTM_1"))(ali_input)
         ali_rnn_2 = None
-        if nodes[1] > 0:
-            ali_rnn_2 = layers.Bidirectional(
-                layers.LSTM(nodes[1], return_sequences=False, activation='tanh',
-                            recurrent_activation='sigmoid', name="sequence_LSTM_2"))(ali_rnn_1)
+        if len(model_config.lstm_nodes) > 1:
+            if model_config.lstm_nodes[1] > 0:
+                ali_rnn_2 = layers.Bidirectional(
+                    layers.LSTM(model_config.lstm_nodes[1], return_sequences=False, activation='tanh',
+                                recurrent_activation='sigmoid', name="sequence_LSTM_2"))(ali_rnn_1)
 
-    if n_eigenvec:
+    if model_config.n_eigenvec:
         # dense on phylo data
-        phy_dnn_1 = layers.Dense(nodes[2], activation='relu', name="phylo_FC_1")(phy_input)
+        phy_dnn_1 = layers.Dense(model_config.nn_phylo_features, activation='relu', name="phylo_FC_1")(phy_input)
     else:
         phy_dnn_1 = None
 
@@ -83,12 +116,12 @@ def build_nn_prm_share_rnn(n_sites, n_species,
 
     print("Creating blocks...")
     # print(ali_rnn_1.shape)
-    if n_eigenvec:
+    if model_config.n_eigenvec:
         sys.exit("not implemented")
     else:
         # NN on raw alignment data
-        comb_sites = [layers.Flatten()(i) for i in tf.split(ali_input, n_sites, axis=1)]
-        site_dnn_1 = layers.Dense(nodes[3], activation='swish', name="site_NN_1")
+        comb_sites = [layers.Flatten()(i) for i in tf.split(ali_input, model_config.n_sites, axis=1)]
+        site_dnn_1 = layers.Dense(model_config.nn_shared_rate_tl, activation='swish', name="site_NN_1")
         site_sp_dnn_1_list = [site_dnn_1(i) for i in comb_sites]
 
         # second site-specific NN + RNN output
@@ -102,7 +135,7 @@ def build_nn_prm_share_rnn(n_sites, n_species,
 
 
     # add second DNN layer (1 node per site)
-    if pool_per_site:
+    if model_config.pool_per_site:
         site_dnn_2 = layers.Dense(1, activation='swish', name="site_rate_hidden2")
         site_sp_dnn_2_list = [site_dnn_2(i) for i in comb_sites_rnn_out]
         concat_1 = layers.concatenate(site_sp_dnn_2_list)
@@ -117,14 +150,14 @@ def build_nn_prm_share_rnn(n_sites, n_species,
     loss = {}
     loss_w = {}
     # output 1: per-site rate
-    if 'per_site_rate' in output_list:
-        site_rate_1 = layers.Dense(nodes[4], activation='swish', name="site_rate_hidden")
+    if 'per_site_rate' in model_config.output_list:
+        site_rate_1 = layers.Dense(model_config.nn_rate[0], activation='swish', name="site_rate_hidden")
         site_rate_1_list = [site_rate_1(i) for i in comb_sites_rnn_out]
-        rate_pred_nn = layers.Dense(1, activation=output_f[0], name="per_site_rate_split")
+        rate_pred_nn = layers.Dense(1, activation=model_config.output_f[0], name="per_site_rate_split")
         rate_pred_list = [rate_pred_nn(i) for i in site_rate_1_list]
         # rate_pred =  layers.Dense(1, activation='linear', name="per_site_rate")(layers.concatenate(rate_pred_list))
 
-        if not mean_normalize_rates:
+        if not model_config.mean_normalize_rates:
             rate_pred = layers.Flatten(name="per_site_rate")(layers.concatenate(rate_pred_list))
         else:
             def mean_rescale(x):
@@ -136,30 +169,32 @@ def build_nn_prm_share_rnn(n_sites, n_species,
 
         outputs.append(rate_pred)
         loss['per_site_rate'] = keras.losses.MeanSquaredError()
-        loss_w["per_site_rate"] = loss_weights[0]
+        loss_w["per_site_rate"] = model_config.loss_weights[0]
 
     # output 2: model test (e.g. JC, HKY, GTR)
-    if 'sub_model' in output_list:
-        subst_model_1 = layers.Dense(nodes[5], activation='relu', name="sub_model_hidden")(concat_1)
-        sub_model_pred = layers.Dense(len(sub_models), activation=output_f[1], name="sub_model")(subst_model_1)
+    if 'sub_model' in model_config.output_list:
+        subst_model_1 = layers.Dense(model_config.nn_sub_model[0], activation='relu', name="sub_model_hidden")(concat_1)
+        sub_model_pred = layers.Dense(len(model_config.sub_models),
+                                      activation=model_config.output_f[1],
+                                      name="sub_model")(subst_model_1)
         outputs.append(sub_model_pred)
         loss['sub_model'] = keras.losses.CategoricalCrossentropy(from_logits=False)
-        loss_w['sub_model'] = loss_weights[1]
+        loss_w['sub_model'] = model_config.loss_weights[1]
 
     # output 3: tree length
-    if 'tree_len' in output_list:
-        tree_len_1 = layers.Dense(nodes[6], activation='swish', name="tree_len_hidden")(concat_1)
-        if len(nodes) == 7:
-            tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_1)
+    if 'tree_len' in model_config.output_list:
+        tree_len_1 = layers.Dense(model_config.nn_tl[0], activation='swish', name="tree_len_hidden")(concat_1)
+        if len(model_config.nn_tl) == 1:
+            tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
         else:
-            if nodes[7] > 0:
-                tree_len_2 = layers.Dense(nodes[7], activation='swish', name="tree_len_hidden_2")(tree_len_1)
-                tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_2)
+            if model_config.nn_tl[1] > 0:
+                tree_len_2 = layers.Dense(model_config.nn_tl[1], activation='swish', name="tree_len_hidden_2")(tree_len_1)
+                tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_2)
             else:
-                tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_1)
+                tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
         outputs.append(tree_len_pred)
         loss['tree_len'] = keras.losses.MeanSquaredError()
-        loss_w['tree_len'] = loss_weights[2]
+        loss_w['tree_len'] = model_config.loss_weights[2]
 
     # Instantiate an end-to-end model predicting both rates and substitution model
     model = keras.Model(
@@ -175,104 +210,76 @@ def build_nn_prm_share_rnn(n_sites, n_species,
 
     return model
 
-def build_rnn_model(n_sites, n_species,
-                    n_eigenvec,
-                    n_onehot=4,
-                    bidirectional_lstm=False,
-                    sub_models=None,
-                    loss_weights=None,
-                    nodes = None,
-                    output_list=None,
-                    output_f=None,
-                    pool_per_site=False,
-                    mean_normalize_rates=False,
-                    layers_norm=True,
-                    separate_block_nn = False,
-                    optimizer=keras.optimizers.RMSprop(1e-3)
+def build_rnn_model(model_config: rnn_config,
+                    optimizer=keras.optimizers.RMSprop(1e-3),
+                    print_summary=False
                     ):
-    if output_list is None:
-        output_list = ['per_site_rate', 'sub_model', 'tree_len']
-
-    if output_f is None:
-        output_f = ['linear', 'softmax','linear']
-
-    if nodes is None:
-        nodes = [64, # sequence_LSTM_1
-                 8, # sequence_LSTM_2
-                 8, # phylo_FC_1 (dense on phylo features)
-                 12, # site_NN (block-NN dense with shared prms)
-                 32, # site_rate_hidden
-                 64, # sub_model_hidden
-                 12, # tree_len_hidden
-                 0 # tree_len_hidden_2 (if > 0)
-                 ]
-    if sub_models is None:
-        sub_models = [0, 1, 2] # ['JC', 'HKY', 'GTR']
-    if loss_weights is None:
-        loss_weights = [1., 1., 1.]
-    ali_input = keras.Input(shape=(n_sites, n_species * n_onehot,), name="sequence_data")
-    if n_eigenvec:
-        phy_input = keras.Input(shape=(n_species * n_eigenvec,), name="eigen_vectors")
+    ali_input = keras.Input(shape=(model_config.n_sites, model_config.n_species * model_config.n_onehot,),
+                            name="sequence_data")
+    if model_config.n_eigenvec:
+        phy_input = keras.Input(shape=(model_config.n_species * model_config.n_eigenvec,),
+                                name="eigen_vectors")
         inputs = [ali_input, phy_input]
     else:
         inputs = [ali_input]
 
     # lstm on sequence data
-    if not bidirectional_lstm:
-        ali_rnn_1 = layers.LSTM(nodes[0], return_sequences=True, activation='tanh',
+    if not model_config.bidirectional_lstm:
+        ali_rnn_1 = layers.LSTM(model_config.lstm_nodes[0], return_sequences=True, activation='tanh',
                                 recurrent_activation='sigmoid', name="sequence_LSTM_1")(ali_input)
-        if layers_norm:
+        if model_config.layers_norm:
             ali_rnn_1n = layers.LayerNormalization(name='layer_norm_rnn1')(ali_rnn_1)
         else:
             ali_rnn_1n = ali_rnn_1
-        ali_rnn_2 = layers.LSTM(nodes[1], return_sequences=True, activation='tanh',
+        ali_rnn_2 = layers.LSTM(model_config.lstm_nodes[1], return_sequences=True, activation='tanh',
                                 recurrent_activation='sigmoid', name="sequence_LSTM_2")(ali_rnn_1n)
-        if layers_norm:
+        if model_config.layers_norm:
             ali_rnn_2n = layers.LayerNormalization(name='layer_norm_rnn2')(ali_rnn_2)
         else:
             ali_rnn_2n = ali_rnn_2
     else:
         ali_rnn_1 = layers.Bidirectional(
-            layers.LSTM(nodes[0], return_sequences=True, activation='tanh',
+            layers.LSTM(model_config.lstm_nodes[0], return_sequences=True, activation='tanh',
                         recurrent_activation='sigmoid', name="sequence_LSTM_1"))(ali_input)
-        if layers_norm:
+        if model_config.layers_norm:
             ali_rnn_1n = layers.LayerNormalization(name='layer_norm_rnn1')(ali_rnn_1)
         else:
             ali_rnn_1n = ali_rnn_1
         ali_rnn_2 = layers.Bidirectional(
-            layers.LSTM(nodes[1], return_sequences=True, activation='tanh',
+            layers.LSTM(model_config.lstm_nodes[1], return_sequences=True, activation='tanh',
                         recurrent_activation='sigmoid', name="sequence_LSTM_2"))(ali_rnn_1n)
-        if layers_norm:
+        if model_config.layers_norm:
             ali_rnn_2n = layers.LayerNormalization(name='layer_norm_rnn2')(ali_rnn_2)
         else:
             ali_rnn_2n = ali_rnn_2
 
 
-    if n_eigenvec:
+    if model_config.n_eigenvec:
         # dense on phylo data
-        phy_dnn_1 = layers.Dense(nodes[2], activation='relu', name="phylo_FC_1")(phy_input)
+        phy_dnn_1 = layers.Dense(model_config.nn_phylo_features, activation='relu', name="phylo_FC_1")(phy_input)
 
     #--- block w shared prms
-    site_dnn_1 = layers.Dense(nodes[3], activation='swish', name="site_NN")
+    site_dnn_1 = layers.Dense(model_config.nn_shared_rate_tl, activation='swish', name="site_NN")
 
-    if separate_block_nn:
-        site_dnn_1_tl = layers.Dense(nodes[3], activation='swish', name="site_NN_tl")
+    if model_config.separate_block_nn:
+        site_dnn_1_tl = layers.Dense(model_config.nn_shared_rate_tl, activation='swish', name="site_NN_tl")
 
 
     print("Creating blocks...")
-    if n_eigenvec:
-        comb_outputs = [tf.concat((layers.Flatten()(i), phy_dnn_1), 1) for i in tf.split(ali_rnn_2n, n_sites, axis=1)]
+    if model_config.n_eigenvec:
+        comb_outputs = [tf.concat((layers.Flatten()(i), phy_dnn_1), 1) for i in tf.split(ali_rnn_2n,
+                                                                                         model_config.n_sites, axis=1)]
     else:
-        comb_outputs = [layers.Flatten()(i) for i in tf.split(ali_rnn_2n, n_sites, axis=1)]
+        comb_outputs = [layers.Flatten()(i) for i in tf.split(ali_rnn_2n, model_config.n_sites, axis=1)]
 
     site_sp_dnn_1_list = [site_dnn_1(i) for i in comb_outputs]
-    if separate_block_nn:
+    if model_config.separate_block_nn:
         site_sp_dnn_1_list_tl = [site_dnn_1_tl(i) for i in comb_outputs]
 
     # add second DNN layer (1 node per site)
-    if pool_per_site:
+    if model_config.pool_per_site:
         site_dnn_2 = layers.Dense(1, activation='swish', name="site_rate_hidden2")
-        if separate_block_nn:
+        if model_config.separate_block_nn:
             site_sp_dnn_2_list = [site_dnn_2(i) for i in site_sp_dnn_1_list_tl]
         else:
             site_sp_dnn_2_list = [site_dnn_2(i) for i in site_sp_dnn_1_list]
@@ -288,14 +295,16 @@ def build_rnn_model(n_sites, n_species,
     loss = {}
     loss_w = {}
     # output 1: per-site rate
-    if 'per_site_rate' in output_list:
-        site_rate_1 = layers.Dense(nodes[4], activation='swish', name="site_rate_hidden")
+    if 'per_site_rate' in model_config.output_list:
+        site_rate_1 = layers.Dense(model_config.nn_rate[0], activation='swish', name="site_rate_hidden")
+        if len(model_config.nn_rate) > 1:
+            print("Warning: only single nn_rate layer is currently supported!")
         site_rate_1_list = [site_rate_1(i) for i in site_sp_dnn_1_list]
-        rate_pred_nn = layers.Dense(1, activation=output_f[0], name="per_site_rate_split")
+        rate_pred_nn = layers.Dense(1, activation=model_config.output_f[0], name="per_site_rate_split")
         rate_pred_list = [rate_pred_nn(i) for i in site_rate_1_list]
         # rate_pred =  layers.Dense(1, activation='linear', name="per_site_rate")(layers.concatenate(rate_pred_list))
 
-        if not mean_normalize_rates:
+        if not model_config.mean_normalize_rates:
             rate_pred = layers.Flatten(name="per_site_rate")(layers.concatenate(rate_pred_list))
         else:
             def mean_rescale(x):
@@ -307,40 +316,37 @@ def build_rnn_model(n_sites, n_species,
 
         outputs.append(rate_pred)
         loss['per_site_rate'] = keras.losses.MeanSquaredError()
-        loss_w["per_site_rate"] = loss_weights[0]
+        loss_w["per_site_rate"] = model_config.loss_weights[0]
 
     # output 2: model test (e.g. JC, HKY, GTR)
-    if 'sub_model' in output_list:
-        subst_model_1 = layers.Dense(nodes[5], activation='relu', name="sub_model_hidden")(concat_1)
-        sub_model_pred = layers.Dense(len(sub_models), activation=output_f[1], name="sub_model")(subst_model_1)
+    if 'sub_model' in model_config.output_list:
+        subst_model_1 = layers.Dense(model_config.nn_sub_model[0], activation='relu', name="sub_model_hidden")(concat_1)
+        sub_model_pred = layers.Dense(len(model_config.sub_models), activation=model_config.output_f[1], name="sub_model")(subst_model_1)
         outputs.append(sub_model_pred)
         loss['sub_model'] = keras.losses.CategoricalCrossentropy(from_logits=False)
-        loss_w['sub_model'] = loss_weights[1]
+        loss_w['sub_model'] = model_config.loss_weights[1]
 
     # output 3: tree length
-    if 'tree_len' in output_list:
-        tree_len_1 = layers.Dense(nodes[6], activation='swish', name="tree_len_hidden")(concat_1)
-        if len(nodes) == 7:
-            tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_1)
+    if 'tree_len' in model_config.output_list:
+        tree_len_1 = layers.Dense(model_config.nn_tl[0], activation='swish', name="tree_len_hidden")(concat_1)
+        if len(model_config.nn_tl) == 1:
+            tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
         else:
-            if nodes[7] > 0:
-                tree_len_2 = layers.Dense(nodes[7], activation='swish', name="tree_len_hidden_2")(tree_len_1)
-                tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_2)
+            if model_config.nn_tl[1] > 0:
+                tree_len_2 = layers.Dense(model_config.nn_tl[1], activation='swish', name="tree_len_hidden_2")(tree_len_1)
+                tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_2)
             else:
-                tree_len_pred = layers.Dense(1, activation=output_f[2], name="tree_len")(tree_len_1)
+                tree_len_pred = layers.Dense(1, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
         outputs.append(tree_len_pred)
         loss['tree_len'] = keras.losses.MeanSquaredError()
-        loss_w['tree_len'] = loss_weights[2]
+        loss_w['tree_len'] = model_config.loss_weights[2]
 
     # output combined
-    if 'per_site_abs_rate' in output_list:
+    if 'per_site_abs_rate' in model_config.output_list:
         absolute_rate = layers.Multiply(name='per_site_abs_rate')([rate_pred, tree_len_pred])
         outputs.append(absolute_rate)
         loss['per_site_abs_rate'] = keras.losses.MeanSquaredError()
         loss_w['per_site_abs_rate'] = 1
-
-
-
 
 
     # Instantiate an end-to-end model predicting both rates and substitution model
@@ -354,6 +360,11 @@ def build_rnn_model(n_sites, n_species,
         loss=loss,
         loss_weights=loss_w
     )
+
+    if print_summary:
+        print(model.summary())
+
+    print("N. model parameters:", model.count_params())
 
     return model
 
