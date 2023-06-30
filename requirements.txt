@@ -1,0 +1,8 @@
+numpy~=1.23.1
+seaborn~=0.11.2
+matplotlib~=3.5.2
+pandas~=1.4.3
+scipy~=1.8.1
+DendroPy~=4.5.2
+tensorflow~=2.9.1
+keras~=2.9.0
