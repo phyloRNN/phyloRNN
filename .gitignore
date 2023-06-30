@@ -1,3 +1,4 @@
 .idea/
+phyloRNN/__pycache__/
 phyloRNN/ali_tmp/
 .DS_Store
