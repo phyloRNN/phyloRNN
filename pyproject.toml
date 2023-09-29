@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phyloRNN"
+version = "0.41"
+authors = [
+  { name="Davide Silvestro", email="davide.silvestro@unil.ch" },
+  { name="Thibault Latrille", email="thibault.latrille@unil.ch" },
+]
+requires-python = ">=3.8"
+
+[project.urls]
+"Homepage" = "https://github.com/phyloRNN/phyloRNN"
+"Bug Tracker" = "https://github.com/phyloRNN/phyloRNN/issues"
