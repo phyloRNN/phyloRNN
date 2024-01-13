@@ -100,7 +100,8 @@ class simulator():
                  verbose = False,
                  base_seed = None,
                  min_avg_br_length=0.0002,
-                 max_avg_br_length=0.2
+                 max_avg_br_length=0.2,
+                 ali_schema="phylip"
                  ):
         self.DEBUG = DEBUG
         self.verbose = verbose
@@ -130,6 +131,7 @@ class simulator():
         self.run_phyml = run_phyml
         self.min_avg_br_length = min_avg_br_length
         self.max_avg_br_length = max_avg_br_length
+        self.ali_schema = ali_schema
 
     def reset_prms(self, CPUs, n_sims, data_name, base_seed, run_phyml=None):
         self.CPUs = CPUs
@@ -142,7 +144,7 @@ class simulator():
     def run_sim(self, args):
         [seed, n_sims, save_ali, run_phyml_estimation] = args
         seed = random.randint(0, 1000) + seed
-        np.random.seed(seed)
+        rs = get_rnd_gen(seed)
         features_ali = []
         features_tree = []
         labels_rates = []
@@ -151,7 +153,7 @@ class simulator():
         info = []
         subs_models = np.array(['JC', 'HKY', 'GTR'])
         for sim_i in range(n_sims):
-            if np.random.random() < self.freq_uncorrelated_sites:
+            if rs.random() < self.freq_uncorrelated_sites:
                 rate_m = "uncorrelated"
                 blocks = self.n_sites
                 sites_indices = np.arange(blocks)
@@ -163,11 +165,11 @@ class simulator():
                 else:
                     # autocorrelated rates
                     rate_m = "autocorrelated"
-                    blocks = np.min([np.random.geometric(p=0.01), self.n_sites]) # mean = 100
-                    sites_indices = np.sort(np.random.randint(0, blocks, self.n_sites))
+                    blocks = np.min([rs.geometric(p=0.01), self.n_sites]) # mean = 100
+                    sites_indices = np.sort(rs.integers(0, blocks, self.n_sites))
 
             # 1. Simulate a tree and get the eigenvectors
-            mean_br_length = np.exp(np.random.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
+            mean_br_length = np.exp(rs.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
             if self.verbose:
                 print_update("simulating tree...")
             else:
@@ -207,7 +209,7 @@ class simulator():
             scale = scale_labels[np.unique(sites_indices, return_index=True)[1]]
 
             if self.subs_model_per_block:
-                model_indx = np.random.randint(0, len(subs_models), blocks)
+                model_indx = rs.integers(0, len(subs_models), blocks)
                 subs_model_array = subs_models[model_indx]
                 freq = None
                 rates = None
@@ -215,11 +217,11 @@ class simulator():
             else:
                 dir_shape_freq = 5
                 dir_shape_rate = 5
-                model_indx = np.random.randint(0, len(subs_models))
+                model_indx = rs.integers(0, len(subs_models))
                 subs_model_array = subs_models[np.repeat(model_indx, blocks)]
-                freq = list(np.random.dirichlet([dir_shape_freq] * 4))
-                rates = list(np.random.dirichlet([dir_shape_rate] * 6))
-                ti_tv = np.random.uniform(2, 12)
+                freq = list(rs.dirichlet([dir_shape_freq] * 4))
+                rates = list(rs.dirichlet([dir_shape_rate] * 6))
+                ti_tv = rs.uniform(2, 12)
 
             # simulate the data
             if self.verbose:
@@ -284,11 +286,15 @@ class simulator():
             if save_ali:
                 save_ali_tmp = save_ali + str(sim_i)
                 t.write_to_path(save_ali_tmp + '.tre', schema="newick")
-                aln.write(path=save_ali_tmp, schema="phylip")
+                if self.ali_schema == "nexus":
+                    save_ali_tmp = save_ali_tmp + '.nex'
+                aln.write(path=save_ali_tmp, schema=self.ali_schema)
                 if run_phyml_estimation:
                     r_ml_est, tl_ml_est = run_phyml(save_ali_tmp, path_phyml=self.phyml_path,
                                                     model=model_indx, n_sites=self.n_sites,
                                                     ncat=4)
+            else:
+                save_ali_tmp = ""
 
             info.append({
                 "n_blocks": blocks,
@@ -299,8 +305,10 @@ class simulator():
                 "rates": rates,
                 "ti_tv": ti_tv,
                 "r_ml_est": r_ml_est,
-                "tl_ml_est": tl_ml_est
+                "tl_ml_est": tl_ml_est,
+                "ali_file": save_ali_tmp
             })
 
         return [features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info]
+
 

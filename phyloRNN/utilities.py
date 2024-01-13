@@ -12,10 +12,9 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment
 import scipy.stats
-from numpy.random import MT19937, RandomState, SeedSequence
 
 def get_rnd_gen(seed=None):
-    return RandomState(MT19937(SeedSequence(seed)))
+    return np.random.default_rng(seed)
 
 def print_update(s):
     sys.stdout.write('\r')
@@ -302,3 +301,177 @@ def calcCI(data, level=0.95):
                 i = k
     assert 0 <= i <= i+nIn-1 < len(d)
     return (d[i], d[i+nIn-1])
+
+
+def print_RevB_vec(name, v):
+    new_v = []
+    if len(v) == 0:
+        vec = "%s <- v()" % (name)
+    elif len(v) == 1:
+        vec = "%s <- v(%s)" % (name, v[0])
+    elif len(v) == 2:
+        vec = "%s <- v(%s, %s)" % (name, v[0], v[1])
+    else:
+        for j in range(0, len(v)):
+            value = v[j]
+            if np.isnan(v[j]): value = "NA"
+            new_v.append(value)
+
+        vec = "%s <- v(%s, " % (name, new_v[0])
+        for j in range(1, len(v) - 1): vec += "%s," % (new_v[j])
+        vec += "%s)" % (new_v[j + 1])
+    return vec
+
+
+################ Revbayes Script
+
+def get_revBayes_script(ali_name, res_name, out_name, sr=None, gamma_model=False, inv_model=False):
+    rate_block = ""
+
+    if gamma_model:
+        rate_block = """
+# among site rate variation, +Gamma4
+alpha ~ dnUniform( 0, 10 )
+sr := fnDiscretizeGamma( alpha, alpha, 4, false )
+moves.append( mvScale(alpha, weight=2.0) )
+
+        """
+        res_name = res_name + "_G"
+        out_name = out_name + "_G"
+    if sr is not None:
+        rate_block = """
+# among site rate variation
+sr <- %s
+        """ % print_RevB_vec("sr", sr)
+        res_name = res_name + "_DL"
+        out_name = out_name + "_DL"
+
+    if inv_model:
+        inv_block = """
+# the probability of a site being invariable, +I
+p_inv ~ dnBeta(1,1)
+moves.append( mvBetaProbability(p_inv, weight=2.0) )
+
+        """
+        inv_model = "pInv=p_inv, "
+
+        rate_block = rate_block + inv_block
+
+    else:
+        inv_model = ""
+    # script
+    s = """
+
+### Read in sequence data for the gene
+data = readDiscreteCharacterData("%s")
+
+# Get some useful variables from the data. We need these later on.
+num_taxa <- data.ntaxa()
+num_branches <- 2 * num_taxa - 3
+taxa <- data.taxa()
+
+
+moves    = VectorMoves()
+monitors = VectorMonitors()
+
+
+######################
+# Substitution Model #
+######################
+
+# specify the stationary frequency parameters
+pi_prior <- v(1,1,1,1) 
+pi ~ dnDirichlet(pi_prior)
+moves.append( mvBetaSimplex(pi, weight=2.0) )
+moves.append( mvDirichletSimplex(pi, weight=1.0) )
+
+
+# specify the exchangeability rate parameters
+er_prior <- v(1,1,1,1,1,1)
+er ~ dnDirichlet(er_prior)
+moves.append( mvBetaSimplex(er, weight=3.0) )
+moves.append( mvDirichletSimplex(er, weight=1.5) )
+
+
+# create a deterministic variable for the rate matrix, GTR
+Q := fnGTR(er,pi) 
+
+
+#############################
+# Among Site Rate Variation #
+#############################
+
+%s
+
+##############
+# Tree model #
+##############
+
+# Prior distribution on the tree topology
+topology ~ dnUniformTopology(taxa)
+moves.append( mvNNI(topology, weight=num_taxa/2.0) )
+moves.append( mvSPR(topology, weight=num_taxa/10.0) )
+
+# Branch length prior
+for (i in 1:num_branches) {
+    bl[i] ~ dnExponential(10.0)
+    moves.append( mvScale(bl[i]) )
+}
+
+TL := sum(bl)
+
+psi := treeAssembly(topology, bl)
+
+
+
+
+###################
+# PhyloCTMC Model #
+###################
+
+# the sequence evolution model
+seq ~ dnPhyloCTMC(tree=psi, Q=Q, siteRates=sr, %s type="DNA")
+
+# attach the data
+seq.clamp(data)
+
+
+############
+# Analysis #
+############
+
+mymodel = model(psi)
+
+# add monitors
+monitors.append( mnScreen(TL, printgen=100) )
+monitors.append( mnFile(psi, filename="%s.trees", printgen=10) )
+monitors.append( mnModel(filename="%s.log", printgen=10) )
+
+# run the analysis
+mymcmc = mcmc(mymodel, moves, monitors)
+mymcmc.run(generations=10000)
+
+
+# summarize output
+treetrace = readTreeTrace("%s.trees", treetype="non-clock")
+# and then get the MAP tree
+map_tree = mapTree(treetrace,"%s.tre", ccp=TRUE)
+# map_tree = mccTree(treetrace,"output/primates_cytb_GTRGI_MAP.tre")
+
+
+# you may want to quit RevBayes now
+q()
+
+
+    """ % (
+        ali_name,
+        rate_block,
+        inv_model,
+        res_name,
+        res_name,
+        res_name,
+        res_name
+    )
+
+    with open(out_name, 'w') as f:
+        f.writelines(s)
