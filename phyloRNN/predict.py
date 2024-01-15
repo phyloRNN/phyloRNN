@@ -12,7 +12,7 @@ def compare_rnn_phyml(compare_file, # *.npz
                       output_dir,
                       model_wd=None,
                       log_rates = False,
-                      log_tl = False,
+                      log_tl = True,
                       tree_features = False,
                       include_tree_features = False,
                       n_taxa = 50,
@@ -148,9 +148,9 @@ def compare_rnn_models(model_names, model_wd, log=True):
     # --- plot training results
     res_training = []
     for i in range(len(model_names)):
-        h = load_pkl(os.path.join(model_wd, "rnn_history%s.pkl" % model_names[i]))
+        h = load_pkl(os.path.join(model_wd, "%s_history.pkl" % model_names[i]))
         d = plot_training_history(h, wd=model_wd,
-                                  filename="train_history" + model_names[i],
+                                  filename=model_names[i] + "_history",
                                   show=False,
                                   digits=4,
                                   log=log)

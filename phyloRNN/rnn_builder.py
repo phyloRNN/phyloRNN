@@ -608,10 +608,10 @@ def save_rnn_model(wd, history, model, feature_rescaler=None, filename=""):
         with open(os.path.join(wd, "rnn_rescaler" + filename + ".pkl"), 'wb') as output:  # Overwrites any existing file.
             pkl.dump(feature_rescaler(1), output, pkl.HIGHEST_PROTOCOL)
     # save training history
-    with open(os.path.join(wd, "rnn_history" + filename + ".pkl"), 'wb') as output:  # Overwrites any existing file.
+    with open(os.path.join(wd, filename + "_history" + ".pkl"), 'wb') as output:  # Overwrites any existing file.
         pkl.dump(history.history, output, pkl.HIGHEST_PROTOCOL)
     # save model
-    tf.keras.models.save_model(model, os.path.join(wd, 'rnn_model' + filename))
+    tf.keras.models.save_model(model, os.path.join(wd, filename + '_model'))
 
 
 def load_rnn_model(wd, filename=""):

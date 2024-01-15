@@ -171,6 +171,7 @@ class simulator():
             # 1. Simulate a tree and get the eigenvectors
             mean_br_length = np.exp(rs.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
             if self.verbose:
+                print("mean_br_length", mean_br_length)
                 print_update("simulating tree...")
             else:
                 print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))

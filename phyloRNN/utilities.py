@@ -323,9 +323,51 @@ def print_RevB_vec(name, v):
     return vec
 
 
+def get_phyloCTMC_model(partitioned=False, inv_model=None):
+    if partitioned is False:
+        p = """
+# the sequence evolution model
+seq ~ dnPhyloCTMC(tree=psi, Q=Q, siteRates=sr, %s type="DNA")
+
+# attach the data
+seq.clamp(data)
+
+        """ % inv_model
+    else:
+        p = """
+###############################################
+# Create partitions
+###############################################
+idx = 1
+
+for (i in 1:int(num_char)) {
+    morpho_bystate[i] <- data                              
+    morpho_bystate[i].excludeAll()                
+    morpho_bystate[i].includeCharacter(i)                            
+
+    ######################
+    # Substitution Model #
+    ######################    
+
+    m_morph[idx] ~ dnPhyloCTMC( tree=psi,
+                                Q=Q,
+                                nSites=1,
+                                siteRates=v(sr[idx]),
+                                type="DNA")           
+
+    m_morph[idx].clamp(morpho_bystate[i])                 
+
+    idx = idx + 1                                       
+    # idx   
+}
+        """
+    return p
+
+
 ################ Revbayes Script
 
-def get_revBayes_script(ali_name, res_name, out_name, sr=None, gamma_model=False, inv_model=False):
+def get_revBayes_script(ali_name, res_name, out_name, sr=None,
+                        gamma_model=False, inv_model=False, partitioned=False):
     rate_block = ""
 
     if gamma_model:
@@ -341,7 +383,7 @@ moves.append( mvScale(alpha, weight=2.0) )
     if sr is not None:
         rate_block = """
 # among site rate variation
-sr <- %s
+%s
         """ % print_RevB_vec("sr", sr)
         res_name = res_name + "_DL"
         out_name = out_name + "_DL"
@@ -359,6 +401,9 @@ moves.append( mvBetaProbability(p_inv, weight=2.0) )
 
     else:
         inv_model = ""
+
+    phylo_model = get_phyloCTMC_model(partitioned=partitioned, inv_model=inv_model)
+
     # script
     s = """
 
@@ -369,7 +414,7 @@ data = readDiscreteCharacterData("%s")
 num_taxa <- data.ntaxa()
 num_branches <- 2 * num_taxa - 3
 taxa <- data.taxa()
-
+num_char <- data.nchar()
 
 moves    = VectorMoves()
 monitors = VectorMonitors()
@@ -429,11 +474,7 @@ psi := treeAssembly(topology, bl)
 # PhyloCTMC Model #
 ###################
 
-# the sequence evolution model
-seq ~ dnPhyloCTMC(tree=psi, Q=Q, siteRates=sr, %s type="DNA")
-
-# attach the data
-seq.clamp(data)
+%s
 
 
 ############
@@ -466,7 +507,7 @@ q()
     """ % (
         ali_name,
         rate_block,
-        inv_model,
+        phylo_model,
         res_name,
         res_name,
         res_name,
@@ -475,3 +516,5 @@ q()
 
     with open(out_name, 'w') as f:
         f.writelines(s)
+
+
