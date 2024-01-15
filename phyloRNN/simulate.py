@@ -285,8 +285,11 @@ class simulator():
             r_ml_est = None
             tl_ml_est = None
             if save_ali:
-                save_ali_tmp = save_ali + str(sim_i)
-                t.write_to_path(save_ali_tmp + '.tre', schema="newick")
+                if n_sims > 1:
+                    save_ali_tmp = save_ali + str(sim_i)
+                else:
+                    save_ali_tmp = save_ali
+                t.write_to_path(save_ali_tmp + '_true.tre', schema="newick")
                 if self.ali_schema == "nexus":
                     save_ali_tmp = save_ali_tmp + '.nex'
                 aln.write(path=save_ali_tmp, schema=self.ali_schema)
