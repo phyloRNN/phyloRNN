@@ -142,8 +142,8 @@ class simulator():
             self.run_phyml = run_phyml
 
     def run_sim(self, args):
-        [seed, n_sims, save_ali, run_phyml_estimation] = args
-        seed = random.randint(0, 1000) + seed
+        [init_seed, n_sims, save_ali, run_phyml_estimation] = args
+        seed = random.randint(0, 1000) + init_seed
         rs = get_rnd_gen(seed)
         features_ali = []
         features_tree = []
@@ -174,7 +174,8 @@ class simulator():
                 print("mean_br_length", mean_br_length)
                 print_update("simulating tree...")
             else:
-                print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
+                if init_seed == self.base_seed:
+                    print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
             t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
             # x = pn.pca(t)  # x is a dict with:
             # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
