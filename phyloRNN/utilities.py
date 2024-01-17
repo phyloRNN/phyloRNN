@@ -358,7 +358,7 @@ for (i in 1:int(num_char)) {
     m_morph[idx].clamp(morpho_bystate[i])                 
 
     idx = idx + 1                                       
-    # idx   
+    # idx
 }
         """
     return p

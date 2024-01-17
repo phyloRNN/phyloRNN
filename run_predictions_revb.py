@@ -86,11 +86,11 @@ for sim_i in range(start_sim, start_sim + n_sim):
 
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
                            sr=None, gamma_model=True, inv_model=True,
-                           prior_bl=0.2)
+                           prior_bl=16.)
 
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
                            sr=site_rates_discrete, gamma_model=False, partitioned=True,
-                           prior_bl=0.2)
+                           prior_bl=16.)
 
 
     pn.save_pkl(res, ali_name + "_info.pkl")
