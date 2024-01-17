@@ -10,6 +10,7 @@ trained_model = pn.load_rnn_model(os.path.join(wd, model_name))
 
 plot = False
 log_rates = False
+start_sim = 0
 n_sim = 100
 
 # simulate data
@@ -34,9 +35,9 @@ sim = pn.simulator(n_taxa = 20,
                    )
 
 # run simulations set
-for sim_i in range(n_sim):
+for sim_i in range(start_sim, start_sim + n_sim):
     ali_name = os.path.join(data_wd, "ali%s" % sim_i)
-    res = sim.run_sim([123, 1,
+    res = sim.run_sim([sim_i, 1,
                  ali_name,
                  False])
 
@@ -84,10 +85,12 @@ for sim_i in range(n_sim):
     print("tree length:", )
 
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
-                           sr=None, gamma_model=True, inv_model=True)
+                           sr=None, gamma_model=True, inv_model=True,
+                           prior_bl=0.2)
 
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
-                           sr=site_rates_discrete, gamma_model=False, partitioned=True)
+                           sr=site_rates_discrete, gamma_model=False, partitioned=True,
+                           prior_bl=0.2)
 
 
     pn.save_pkl(res, ali_name + "_info.pkl")
