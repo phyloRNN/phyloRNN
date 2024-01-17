@@ -367,7 +367,8 @@ for (i in 1:int(num_char)) {
 ################ Revbayes Script
 
 def get_revBayes_script(ali_name, res_name, out_name, sr=None,
-                        gamma_model=False, inv_model=False, partitioned=False):
+                        gamma_model=False, inv_model=False, partitioned=False,
+                        prior_bl=10.0):
     rate_block = ""
 
     if gamma_model:
@@ -459,7 +460,7 @@ moves.append( mvSPR(topology, weight=num_taxa/10.0) )
 
 # Branch length prior
 for (i in 1:num_branches) {
-    bl[i] ~ dnExponential(10.0)
+    bl[i] ~ dnExponential(%s)
     moves.append( mvScale(bl[i]) )
 }
 
@@ -507,6 +508,7 @@ q()
     """ % (
         ali_name,
         rate_block,
+        prior_bl,
         phylo_model,
         res_name,
         res_name,
