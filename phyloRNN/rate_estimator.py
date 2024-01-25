@@ -1,6 +1,7 @@
 import subprocess
 import numpy as np
 import pandas as pd
+from ete3 import Tree
 
 def parse_phyml_file(outputfile, n_sites):
     sites = []
@@ -46,6 +47,8 @@ def run_phyml(filename, path_phyml, model, n_sites,
               ncat=4,
               output_file=None,
               tree_constraint=None,
+              topology_constraint=None,
+              remove_branch_length=False,
               return_likelihoods=False):
     model = ['JC69', 'HKY85', 'GTR'][model]
 
@@ -55,9 +58,21 @@ def run_phyml(filename, path_phyml, model, n_sites,
     cmd_g = f"-i {filename} -a e -c {ncat} -m {model} --print_site_lnl --run_id G"
     cmd_fr = f"-i {filename} --freerates -c {ncat} -m {model} --print_site_lnl --run_id FR"
 
-    if tree_constraint is not None:
-        cmd_g = cmd_g + f" -u {tree_constraint} -o r" # only optimizes rates
-        cmd_fr = cmd_fr + f" -u {tree_constraint} -o r"  # only optimizes rates
+
+    if tree_constraint is not None or topology_constraint is not None:
+        if remove_branch_length:
+            tree_constraint_tmp = tree_constraint + ".topology.tree"
+            t = open(tree_constraint, "r").read().replace("[&R] ", "")
+            tree = Tree(t, format=1)
+            tree.write(outfile=tree_constraint_tmp, format=9)
+            tree_constraint = tree_constraint_tmp
+        if topology_constraint is not None:
+            cmd_g = cmd_g + f" -u {tree_constraint} -o lr" #  optimizes rates and br lengths
+            cmd_fr = cmd_fr + f" -u {tree_constraint} -o lr"
+        else:
+            cmd_g = cmd_g + f" -u {tree_constraint} -o r" # only optimizes rates
+            cmd_fr = cmd_fr + f" -u {tree_constraint} -o r"
+
 
     # gamma model
     execute_phyml(path_phyml, cmd_g)
