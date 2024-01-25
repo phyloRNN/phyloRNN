@@ -2,16 +2,16 @@ import os
 import numpy as np
 import phyloRNN as pn
 from matplotlib import pyplot as plt
-wd = "/Users/dsilvestro/Desktop/revbayes_test/trained_model"
-data_wd = "/Users/dsilvestro/Desktop/revbayes_test/data"
+wd = "/Users/dsilvestro/Documents/Projects/Ongoing/phyloRNN/R1/revbayes_test/trained_model"
+data_wd = "/Users/dsilvestro/Documents/Projects/Ongoing/phyloRNN/R1/revbayes_test/data"
 # training_file = os.path.join(os.getcwd(), "training_data.npz")
 model_name = "t20_s100_model"
 trained_model = pn.load_rnn_model(os.path.join(wd, model_name))
 
 plot = False
 log_rates = False
-start_sim = 0
-n_sim = 100
+start_sim = 666
+n_sim = 1
 
 # simulate data
 
@@ -74,23 +74,18 @@ for sim_i in range(start_sim, start_sim + n_sim):
         plt.show()
         print(res[-1][0]['rate_het_model'])
 
-    x = np.linspace(0, 1, 5)
-    qntl = x[1:] - (x[1] / 2)
-    discrete_gamma = False
-    if discrete_gamma:
-        site_rates_discrete = np.quantile(site_rates, qntl)
-    else:
-        site_rates_discrete = site_rates
-    # print(site_rates_discrete)
-    print("tree length:", )
-
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
                            sr=None, gamma_model=True, inv_model=True,
                            prior_bl=16.)
 
     pn.get_revBayes_script(ali_file, ali_name, ali_name,
-                           sr=site_rates_discrete, gamma_model=False, partitioned=True,
+                           sr=site_rates, gamma_model=False, partitioned=True,
                            prior_bl=16.)
+
+    pn.get_revBayes_script(ali_file, ali_name, ali_name,
+                           sr=site_rates, gamma_model=False, partitioned=True,
+                           prior_bl=16.,
+                           discretize_site_rate=5)
 
 
     pn.save_pkl(res, ali_name + "_info.pkl")

@@ -12,6 +12,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import MultipleSeqAlignment
 import scipy.stats
+import scipy.ndimage
 
 def get_rnd_gen(seed=None):
     return np.random.default_rng(seed)
@@ -302,6 +303,47 @@ def calcCI(data, level=0.95):
     assert 0 <= i <= i+nIn-1 < len(d)
     return (d[i], d[i+nIn-1])
 
+#################################################
+######     RevBayes utility functions      ######
+#################################################
+
+def get_discretized_site_rates(site_rates, ncat=10, log_rates=True, test=False):
+    if log_rates:
+        counts, discrete_rates = np.histogram(np.log(site_rates), bins=ncat)
+        discrete_rates = np.exp(discrete_rates)
+    else:
+        counts, discrete_rates = np.histogram(site_rates, bins=ncat)
+
+    indx = np.digitize(site_rates, bins=discrete_rates[:-1]) - 1
+
+    mean_rates = scipy.ndimage.mean(site_rates, index=indx, labels=indx)
+
+    unique_rates = np.unique(mean_rates)
+    indices = np.zeros(len(mean_rates)).astype(int)
+    for i in range(len(unique_rates)):
+        indices[mean_rates == unique_rates[i]] = i
+
+    if test:
+        """
+        TEST
+        """
+        rs = get_rnd_gen(125)
+        site_rates = np.array(list(rs.random(10)) + list(rs.uniform(2, 3, 10)))
+        counts, discrete_rates = np.histogram(np.log(site_rates), bins=6)
+        discrete_rates = np.exp(discrete_rates)
+        indx = np.digitize(site_rates, bins=discrete_rates[:-1]) - 1
+
+        mean_rates = scipy.ndimage.mean(site_rates, index=indx, labels=indx)
+        unique_rates = np.unique(mean_rates)
+        indices = np.zeros(len(mean_rates)).astype(int)
+        for i in range(len(unique_rates)):
+            indices[mean_rates == unique_rates[i]] = i
+
+        print(unique_rates[indices] == mean_rates)
+
+    return unique_rates, indices
+
+
 
 def print_RevB_vec(name, v):
     new_v = []
@@ -314,7 +356,10 @@ def print_RevB_vec(name, v):
     else:
         for j in range(0, len(v)):
             value = v[j]
-            if np.isnan(v[j]): value = "NA"
+            try:
+                if np.isnan(v[j]): value = "NA"
+            except:
+                print(v[j], v)
             new_v.append(value)
 
         vec = "%s <- v(%s, " % (name, new_v[0])
@@ -323,7 +368,7 @@ def print_RevB_vec(name, v):
     return vec
 
 
-def get_phyloCTMC_model(partitioned=False, inv_model=None):
+def get_phyloCTMC_model(partitioned=False, inv_model=None, discretize_site_rate=0):
     if partitioned is False:
         p = """
 # the sequence evolution model
@@ -334,7 +379,22 @@ seq.clamp(data)
 
         """ % inv_model
     else:
-        p = """
+        if discretize_site_rate > 0:
+            p = """
+###############################################
+# Create partitions (discretized)
+###############################################
+"""
+            for i in range(discretize_site_rate):
+                p += """
+part_rate[%s] <- data                              
+part_rate[%s].excludeAll()                
+part_rate[%s].includeCharacter(part_%s_indx) 
+dat[%s] ~ dnPhyloCTMC( tree=psi, Q=Q, nSites=part_rate[%s].nchar(), siteRates=v(sr[%s]), type="DNA")           
+dat[%s].clamp(part_rate[%s])  
+                """ % tuple([i + 1 for j in range(9)])
+        else:
+            p = """
 ###############################################
 # Create partitions
 ###############################################
@@ -368,8 +428,9 @@ for (i in 1:int(num_char)) {
 
 def get_revBayes_script(ali_name, res_name, out_name, sr=None,
                         gamma_model=False, inv_model=False, partitioned=False,
-                        prior_bl=10.0):
+                        prior_bl=10.0, discretize_site_rate=0, log_discretize=True):
     rate_block = ""
+    n_rate_classes = 0
 
     if gamma_model:
         rate_block = """
@@ -382,12 +443,34 @@ moves.append( mvScale(alpha, weight=2.0) )
         res_name = res_name + "_G"
         out_name = out_name + "_G"
     if sr is not None:
-        rate_block = """
+        if discretize_site_rate > 0:
+            discrete_rates, rate_indx = get_discretized_site_rates(sr,
+                                                              ncat=discretize_site_rate,
+                                                              log_rates=log_discretize)
+            n_rate_classes = len(discrete_rates) # some rate classes might be assigned to 0 sites
+            print(discrete_rates, rate_indx, discretize_site_rate)
+            rate_block = """
+# among site rate variation (discrete)
+%s
+                        """ % print_RevB_vec("sr", discrete_rates)
+            for d in range(len(discrete_rates)):
+                ind = np.where(rate_indx == d)[0]
+                print("rate_block", ind, d)
+                part_name = d + 1
+                if len(ind) > 0:
+                    rate_block += """
+%s                
+                    """ % print_RevB_vec("part_%s_indx" % part_name, ind + 1)
+
+            res_name = res_name + "_DL%sd" % discretize_site_rate
+            out_name = out_name + "_DL%sd" % discretize_site_rate
+        else:
+            rate_block = """
 # among site rate variation
 %s
-        """ % print_RevB_vec("sr", sr)
-        res_name = res_name + "_DL"
-        out_name = out_name + "_DL"
+            """ % print_RevB_vec("sr", sr)
+            res_name = res_name + "_DL"
+            out_name = out_name + "_DL"
 
     if inv_model:
         inv_block = """
@@ -403,7 +486,8 @@ moves.append( mvBetaProbability(p_inv, weight=2.0) )
     else:
         inv_model = ""
 
-    phylo_model = get_phyloCTMC_model(partitioned=partitioned, inv_model=inv_model)
+    phylo_model = get_phyloCTMC_model(partitioned=partitioned, inv_model=inv_model,
+                                      discretize_site_rate=n_rate_classes)
 
     # script
     s = """
@@ -497,13 +581,10 @@ mymcmc.run(generations=10000)
 # summarize output
 treetrace = readTreeTrace("%s.trees", treetype="non-clock")
 # and then get the MAP tree
-map_tree = mapTree(treetrace,"%s.tre", ccp=TRUE)
-# map_tree = mccTree(treetrace,"output/primates_cytb_GTRGI_MAP.tre")
-
-
-# you may want to quit RevBayes now
+map_tree = mapTree(treetrace,"%s_MAP.tre", ccp=TRUE)
+mcc_tree = mccTree(treetrace,"%s_MCC.tre")
+mcr_tree = consensusTree(trace=treetrace, cutoff=0, file="%s_CT.tre")
 q()
-
 
     """ % (
         ali_name,
@@ -513,7 +594,7 @@ q()
         res_name,
         res_name,
         res_name,
-        res_name
+        res_name, res_name, res_name
     )
 
     with open(out_name, 'w') as f:

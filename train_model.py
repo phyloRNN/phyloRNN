@@ -3,7 +3,7 @@ import phyloRNN as pn
 
 training_file = os.path.join(os.getcwd(), "training_data.npz")
 wd = os.path.dirname(training_file)
-model_name = "phylo_rnn_model"
+model_name = "t50_s1000"
 
 # load data
 sim, dict_inputs, dict_outputs = pn.rnn_in_out_dictionaries_from_sim(training_file,
