@@ -324,6 +324,10 @@ def get_discretized_site_rates(site_rates, ncat=10, log_rates=True, test=False):
         indices[mean_rates == unique_rates[i]] = i
 
     if test:
+
+        plt.plot(mean_rates)
+        plt.plot(site_rates)
+        plt.show()
         """
         TEST
         """
