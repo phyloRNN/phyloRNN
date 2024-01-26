@@ -1,6 +1,6 @@
 import dendropy
 from Bio import AlignIO
-
+import re
 from .rate_estimator import *
 from .sequence_simulator import pca_from_ali
 from .utilities import *
@@ -173,14 +173,41 @@ def randomize_sites(dict_inputs, dict_outputs):
 
 
 
+
+def gap_fixer(ali, dict=['A','C','G','T']):
+    np_ali = np.array(ali)
+    (base, count) = np.unique(np_ali, return_counts=True)
+    most_common_overall = base[np.argmax(count)]
+
+    for site_i in range(np_ali.shape[1]):
+        s = np_ali[:,site_i]
+        (base, count) = np.unique(s, return_counts=True)
+        for i in range(len(count)):
+            if base[i] not in dict:
+                count[i] *= 0
+        if np.sum(count) > 0:
+            most_common = base[np.argmax(count)]
+        else: # if they are all gaps
+            most_common = most_common_overall
+
+        for i in range(len(count)):
+            if base[i] not in dict:
+                s[s == base[i]] = most_common
+
+    return pd.DataFrame(np_ali)
+
+
+
 def parse_alignment_file(ali_file,
                          schema="fasta",
-                         log_rates=True,
+                         log_rates=False,
                          log_tree_len=True,
                          output_list=None,
-                         include_tree_features=True,
-                         run_phyml_estimation = True,
-                         phyml_path=""
+                         include_tree_features=False,
+                         run_phyml_estimation = False,
+                         phyml_path="",
+                         save_nogap_ali=False,
+                         n_eigen_features = 0
                          ):
     # read fasta file
     dna = dendropy.DnaCharacterMatrix.get(file=open(ali_file), schema=schema)
@@ -201,7 +228,8 @@ def parse_alignment_file(ali_file,
     ali_tmp = pd.concat([ali, pd.DataFrame(l)])
 
     ali_tmp_nogap = gap_fixer(ali_tmp)
-    ali_tmp_nogap.to_csv(ali_file + "_imputed.phy")
+    if save_nogap_ali:
+        ali_tmp_nogap.to_csv(ali_file + "_imputed.phy")
 
     if len(np.unique(ali_tmp_nogap)) != 4:
         ValueError("Error - only A, C, G, T allowed! Found:", np.unique(ali_tmp_nogap))
@@ -215,10 +243,11 @@ def parse_alignment_file(ali_file,
     onehot_features = onehot_rs_2.reshape(n_sites, n_taxa * len(l))
 
     # get tree eigenvectors
-    n_eigen_features = 3
-    eigenvec = pca_from_ali(dna, tree_builder='nj')["eigenvect"]  # shape = (n_taxa, n_taxa)
-    eigenvec_features = eigenvec[:, range(n_eigen_features)].flatten()
-
+    if include_tree_features:
+        eigenvec = pca_from_ali(dna, tree_builder='nj')["eigenvect"]  # shape = (n_taxa, n_taxa)
+        eigenvec_features = eigenvec[:, range(n_eigen_features)].flatten()
+    else:
+        eigenvec_features = None
     features_ali = []
     features_tree = []
     info = []
@@ -260,34 +289,47 @@ def parse_alignment_file(ali_file,
 
 
 
+def parse_large_alignment_file(ali_file,
+                               batch_size,
+                               n_taxa):
+    counter = 1
+    features = []
+    with open(ali_file, "r") as f:
+        ind = 0
+        for line in f.readlines():
+            if ind:
+                print("Taxon", counter)
+                tmp = re.sub("A", "1000", line)
+                tmp = re.sub("C", "0100", tmp)
+                tmp = re.sub("G", "0010", tmp)
+                tmp = re.sub("T", "0001", tmp)
+                tmp_list = [*tmp]
+                tmp_list = tmp_list[:-1]  # remove last character: '\n'
+                features.append(tmp_list)
+                ind = 0
+                counter += 1
+            else:
+                ind = 1
 
+    ##
+    # tot_n_sites = len(features[0]) / 4
+    predict_sites = round((len(features[0]) / 4) / batch_size) * batch_size
+    features_ali = []
+    for i in range(0, predict_sites, batch_size):
+        if len(features_ali) % 50 == 0:
+            print_update("Sites: %s / %s (%s)" % (i, predict_sites, np.round((100 * i / predict_sites), 2)))
+        feature_sites = [tmp[i * 4: (i + batch_size) * 4] for tmp in features]
+        onehot = np.array(feature_sites).astype(int)
+        # onehot_rs_1 shape = (n_taxa, n_sites, 4)
+        onehot_rs_1 = onehot.reshape(n_taxa, batch_size, 4)
+        # onehot_rs_2 shape = (n_sites, n_taxa, 4)
+        onehot_rs_2 = np.transpose(onehot_rs_1, (1, 0, 2))
+        # onehot_features shape = (n_sites, n_taxa * 4)
+        onehot_features = onehot_rs_2.reshape(batch_size, n_taxa * 4)
+        features_ali.append(onehot_features)
 
-def gap_fixer(ali, dict=['A','C','G','T']):
-    np_ali = np.array(ali)
-    (base, count) = np.unique(np_ali, return_counts=True)
-    most_common_overall = base[np.argmax(count)]
-
-    for site_i in range(np_ali.shape[1]):
-        s = np_ali[:,site_i]
-        (base, count) = np.unique(s, return_counts=True)
-        for i in range(len(count)):
-            if base[i] not in dict:
-                count[i] *= 0
-        if np.sum(count) > 0:
-            most_common = base[np.argmax(count)]
-        else: # if they are all gaps
-            most_common = most_common_overall
-
-        for i in range(len(count)):
-            if base[i] not in dict:
-                s[s == base[i]] = most_common
-
-    return pd.DataFrame(np_ali)
-
-
-
-
-
+    dict_inputs = {"sequence_data": np.array(features_ali), }
+    return dict_inputs
 
 
 
