@@ -49,7 +49,8 @@ def run_phyml(filename, path_phyml, model, n_sites,
               tree_constraint=None,
               topology_constraint=None,
               remove_branch_length=False,
-              return_likelihoods=False):
+              return_likelihoods=False,
+              run_free_rates=True):
     model = ['JC69', 'HKY85', 'GTR'][model]
 
     """
@@ -80,9 +81,13 @@ def run_phyml(filename, path_phyml, model, n_sites,
     tl_g = parse_phyml_stats(filename + "_phyml_stats_G.txt")
 
     # free rate model
-    execute_phyml(path_phyml, cmd_fr)
-    sites_fr = parse_phyml_file(filename + "_phyml_lk_FR.txt", n_sites)
-    tl_fr = parse_phyml_stats(filename + "_phyml_stats_FR.txt")
+    if run_free_rates:
+        execute_phyml(path_phyml, cmd_fr)
+        sites_fr = parse_phyml_file(filename + "_phyml_lk_FR.txt", n_sites)
+        tl_fr = parse_phyml_stats(filename + "_phyml_stats_FR.txt")
+    else:
+        sites_fr = sites_g * 0
+        tl_fr = tl_g * 0
 
     tbl = np.array([range(len(sites_g)), sites_g, sites_fr]).T
     p = pd.DataFrame(tbl)
@@ -97,7 +102,10 @@ def run_phyml(filename, path_phyml, model, n_sites,
 
     if return_likelihoods:
         lik_g = parse_phyml_lik(filename + "_phyml_stats_G.txt")
-        lik_fr = parse_phyml_lik(filename + "_phyml_stats_FR.txt")
+        if run_free_rates:
+            lik_fr = parse_phyml_lik(filename + "_phyml_stats_FR.txt")
+        else:
+            lik_fr = lik_g * 0
         tbl = np.array([lik_g, lik_fr]).reshape((1, 2))
         lk = pd.DataFrame(tbl)
         lk.columns = ["lik_g", "lik_fr"]
