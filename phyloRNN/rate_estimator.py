@@ -86,7 +86,7 @@ def run_phyml(filename, path_phyml, model, n_sites,
         sites_fr = parse_phyml_file(filename + "_phyml_lk_FR.txt", n_sites)
         tl_fr = parse_phyml_stats(filename + "_phyml_stats_FR.txt")
     else:
-        sites_fr = sites_g * 0
+        sites_fr = list(np.repeat(np.nan, len(sites_g)))
         tl_fr = tl_g * 0
 
     tbl = np.array([range(len(sites_g)), sites_g, sites_fr]).T
