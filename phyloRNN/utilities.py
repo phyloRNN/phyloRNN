@@ -323,6 +323,7 @@ def get_discretized_site_rates(site_rates, ncat=10, log_rates=True, test=False):
     for i in range(len(unique_rates)):
         indices[mean_rates == unique_rates[i]] = i
 
+    # TODO: ensure np.mean(unique_rates[indices]) == 1
     if test:
 
         plt.plot(mean_rates)
@@ -430,23 +431,47 @@ for (i in 1:int(num_char)) {
 
 ################ Revbayes Script
 
-def get_revBayes_script(ali_name, res_name, out_name, sr=None,
-                        gamma_model=False, inv_model=False, partitioned=False,
+def get_revBayes_script(ali_name, res_name=None, out_name=None, sr=None,
+                        gamma_model=False, inv_model=False,
                         prior_bl=10.0, discretize_site_rate=0, log_discretize=True):
     rate_block = ""
     n_rate_classes = 0
+    if res_name is None:
+        res_name = ali_name
 
-    if gamma_model:
-        rate_block = """
-# among site rate variation, +Gamma4
-alpha ~ dnUniform( 0, 10 )
-sr := fnDiscretizeGamma( alpha, alpha, 4, false )
-moves.append( mvScale(alpha, weight=2.0) )
+    if out_name is None:
+        out_name = ali_name
 
-        """
-        res_name = res_name + "_G"
-        out_name = out_name + "_G"
-    if sr is not None:
+    if sr is None:
+        partitioned = False
+
+        if gamma_model:
+            rate_block = """
+        # among site rate variation, +Gamma4
+        alpha ~ dnUniform( 0, 10 )
+        sr := fnDiscretizeGamma( alpha, alpha, 4, false )
+        moves.append( mvScale(alpha, weight=2.0) )
+
+                """
+            res_name = res_name + "_G"
+            out_name = out_name + "_G"
+
+        if inv_model:
+            inv_block = """
+            # the probability of a site being invariable, +I
+            p_inv ~ dnBeta(1,1)
+            moves.append( mvBetaProbability(p_inv, weight=2.0) )
+
+                    """
+            inv_model = "pInv=p_inv, "
+
+            rate_block = rate_block + inv_block
+        else:
+            inv_model = ""
+
+
+    else:
+        partitioned = True
         if discretize_site_rate > 0:
             discrete_rates, rate_indx = get_discretized_site_rates(sr,
                                                               ncat=discretize_site_rate,
@@ -476,19 +501,7 @@ moves.append( mvScale(alpha, weight=2.0) )
             res_name = res_name + "_DL"
             out_name = out_name + "_DL"
 
-    if inv_model:
-        inv_block = """
-# the probability of a site being invariable, +I
-p_inv ~ dnBeta(1,1)
-moves.append( mvBetaProbability(p_inv, weight=2.0) )
 
-        """
-        inv_model = "pInv=p_inv, "
-
-        rate_block = rate_block + inv_block
-
-    else:
-        inv_model = ""
 
     phylo_model = get_phyloCTMC_model(partitioned=partitioned, inv_model=inv_model,
                                       discretize_site_rate=n_rate_classes)
