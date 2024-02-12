@@ -11,8 +11,7 @@ import pickle as pkl
 import scipy.stats
 
 from keras.layers import Activation
-from keras.utils.generic_utils import get_custom_objects
-
+from tensorflow.python.keras.utils import generic_utils
 class rnn_config():
     def __init__(self,
                  lstm_nodes: list = None,
@@ -163,7 +162,7 @@ def build_nn_prm_share_rnn(model_config: rnn_config,
             def mean_rescale(x):
                 return x / tf.reduce_mean(x, axis=1, keepdims=True)
 
-            get_custom_objects().update({'mean_rescale': Activation(mean_rescale)})
+            generic_utils.get_custom_objects().update({'mean_rescale': Activation(mean_rescale)})
             rate_pred_tmp = layers.Flatten(name="per_site_rate_tmp")(layers.concatenate(rate_pred_list))
             rate_pred = layers.Activation(mean_rescale, name='per_site_rate')(rate_pred_tmp)
 
@@ -310,7 +309,7 @@ def build_rnn_model(model_config: rnn_config,
             def mean_rescale(x):
                 return x / tf.reduce_mean(x, axis=1, keepdims=True)
 
-            get_custom_objects().update({'mean_rescale': Activation(mean_rescale)})
+            generic_utils.get_custom_objects().update({'mean_rescale': Activation(mean_rescale)})
             rate_pred_tmp = layers.Flatten(name="per_site_rate_tmp")(layers.concatenate(rate_pred_list))
             rate_pred = layers.Activation(mean_rescale, name='per_site_rate')(rate_pred_tmp)
 

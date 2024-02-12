@@ -4,6 +4,7 @@ import re
 from .rate_estimator import *
 from .sequence_simulator import pca_from_ali
 from .utilities import *
+import tensorflow as tf
 
 
 def generate_features(wd="data", n_eigen=3, output=""):
@@ -116,6 +117,10 @@ def get_eigen_vectors(eig_tbl, ali, size=None):
 
     return np.array(eigen_vec)
 
+def np_to_tf(x, type=np.float32):
+    with tf.device('/cpu:0'):
+        tf_x = tf.convert_to_tensor(np.array(x), type)
+    return tf_x
 
 def rnn_in_out_dictionaries_from_sim(sim_file=None,
                                      sim=None,
@@ -140,21 +145,21 @@ def rnn_in_out_dictionaries_from_sim(sim_file=None,
     # prep data
     if include_tree_features:
         dict_inputs = {
-            "sequence_data": sim['features_ali'],
-            "eigen_vectors": sim['features_tree']
+            "sequence_data": np_to_tf(sim['features_ali']),
+            "eigen_vectors": np_to_tf(sim['features_tree'])
         }
     else:
         dict_inputs = {
-            "sequence_data": sim['features_ali'],
+            "sequence_data": np_to_tf(sim['features_ali']),
         }
 
     dict_outputs = {}
     if 'per_site_rate' in output_list:
-        dict_outputs["per_site_rate"] = sim['labels_rates']
+        dict_outputs["per_site_rate"] = np_to_tf(sim['labels_rates'])
     if 'sub_model' in output_list and sim['labels_smodel'] is not None:
-        dict_outputs["sub_model"] = pd.get_dummies(sim['labels_smodel']).to_numpy()
+        dict_outputs["sub_model"] = np_to_tf(pd.get_dummies(sim['labels_smodel']).to_numpy())
     if "tree_len" in output_list and sim['labels_tl'] is not None:
-        dict_outputs["tree_len"] = f(sim['labels_tl'])
+        dict_outputs["tree_len"] = np_to_tf(f(sim['labels_tl']))
 
     return sim, dict_inputs, dict_outputs
 
@@ -291,20 +296,24 @@ def parse_alignment_file(ali_file,
 
 def parse_large_alignment_file(ali_file,
                                batch_size,
-                               n_taxa):
+                               n_taxa,
+                               truncate=None):
     counter = 1
     features = []
     with open(ali_file, "r") as f:
         ind = 0
         for line in f.readlines():
             if ind:
-                print("Taxon", counter)
+                print_update("Taxon", counter)
                 tmp = re.sub("A", "1000", line)
                 tmp = re.sub("C", "0100", tmp)
                 tmp = re.sub("G", "0010", tmp)
                 tmp = re.sub("T", "0001", tmp)
                 tmp_list = [*tmp]
                 tmp_list = tmp_list[:-1]  # remove last character: '\n'
+                # print(np.array(tmp_list).shape)
+                if truncate is not None:
+                    tmp_list = tmp_list[:(truncate * 4)]
                 features.append(tmp_list)
                 ind = 0
                 counter += 1
@@ -312,7 +321,8 @@ def parse_large_alignment_file(ali_file,
                 ind = 1
 
     ##
-    # tot_n_sites = len(features[0]) / 4
+    tot_n_sites = len(features[0]) / 4
+    print("\ntot_n_sites:", tot_n_sites)
     predict_sites = round((len(features[0]) / 4) / batch_size) * batch_size
     features_ali = []
     for i in range(0, predict_sites, batch_size):
@@ -329,6 +339,7 @@ def parse_large_alignment_file(ali_file,
         features_ali.append(onehot_features)
 
     dict_inputs = {"sequence_data": np.array(features_ali), }
+    print("\ndone.\n")
     return dict_inputs
 
 
