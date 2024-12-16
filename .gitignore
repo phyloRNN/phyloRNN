@@ -2,3 +2,11 @@
 phyloRNN/__pycache__/
 phyloRNN/ali_tmp/
 .DS_Store
+/.devbox/
+/.venv/
+/phyloRNN.egg-info/
+/Chr1.WGAlign.FromBam.Filtered.fasta
+/Trained_models.zip
+/243_22562_180-pycharm-support-libs/
+/.ipynb_checkpoints/
+/nohup.out

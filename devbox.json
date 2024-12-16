@@ -1,0 +1,47 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.7/.schema/devbox.schema.json",
+  "packages": [
+    "python@3.8",
+    "jupyter@latest"
+  ],
+  "shell": {
+    "init_hook": [
+      "echo 'Welcome to devbox for phyloRNN!' ",
+      ". $VENV_DIR/bin/activate",
+      "pip -q install --upgrade pip",
+      "pip -q install ipykernel",
+      "pip -q install -r requirements.txt",
+      "pip -q install -e .",
+      "python -m ipykernel install --user --name=devbox_kernel --display-name 'Python (devbox)'"
+    ],
+    "scripts": {
+      "test": [
+        "python -c 'import phyloRNN; print(0)'"
+      ],
+      "download_clownfish_data": [
+        "wget -c https://datadryad.org/api/v2/files/3194922/download",
+        "mv download Chr1.WGAlign.FromBam.Filtered.fasta"
+      ],
+      "download_model": [
+        "wget https://github.com/phyloRNN/Scripts_and_data/blob/main/Scripts/Trained_models.zip"
+      ],
+      "install_phyml": [
+        "sudo apt-get update",
+        "sudo apt install phyml"
+      ],
+      "install_seq-gen": [
+         "sudo apt-get update",
+         "sudo apt-get install seq-gen"
+      ],
+      "start_server_jupyter_host": [
+        "nohup jupyter notebook --no-browser --port=8889 --ip=0.0.0.0 &"
+      ],
+      "show_running_server_jupyter": [
+        "jupyter notebook list"
+      ],
+      "kill_all_server_jupyter": [
+        "pkill -f jupyter-notebook"
+      ]
+    }
+  }
+}

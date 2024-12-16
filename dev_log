@@ -1,0 +1,2 @@
+- Update the requirement.txt with correct version of tensorflow + bio/ete. Do a pip freeze.
+- GPU accelration seems to be turn off (see menage when init shell)

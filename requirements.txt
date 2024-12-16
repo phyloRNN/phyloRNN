@@ -6,3 +6,5 @@ scipy~=1.8.1
 DendroPy~=4.5.2
 tensorflow~=2.9.1
 keras~=2.9.0
+biopython
+ete3
