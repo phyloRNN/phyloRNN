@@ -5,7 +5,7 @@
   ],
   "shell": {
     "init_hook": [
-      "echo 'Welcome to devbox for phyloRNN!' ",
+      "echo 'Welcome to devbox for phyloRNN! ' ",
       ". $VENV_DIR/bin/activate",
       "python -m ensurepip --upgrade > /dev/null 2>&1",
       "pip -q install --upgrade pip",
