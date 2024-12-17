@@ -1,17 +1,18 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.13.7/.schema/devbox.schema.json",
   "packages": [
-    "python@3.8",
-    "jupyter@latest"
+    "python@3.9"
   ],
   "shell": {
     "init_hook": [
       "echo 'Welcome to devbox for phyloRNN!' ",
       ". $VENV_DIR/bin/activate",
+      "python -m ensurepip --upgrade > /dev/null 2>&1",
       "pip -q install --upgrade pip",
+      "pip -q install jupyter",
       "pip -q install setuptools",
       "pip -q install ipykernel",
-      "pip -q install -r requirements.txt",
+      "pip install -r -q requirements.txt",
       "pip -q install -e .",
       "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN'"
     ],
@@ -33,8 +34,8 @@
         "sudo apt install phyml"
       ],
       "install_seq-gen": [
-         "sudo apt-get update",
-         "sudo apt-get install seq-gen"
+        "sudo apt-get update",
+        "sudo apt-get install seq-gen"
       ],
       "start_server_jupyter_host": [
         "nohup jupyter notebook --no-browser --port=8889 --ip=0.0.0.0 &"
@@ -44,6 +45,9 @@
       ],
       "kill_all_server_jupyter": [
         "pkill -f jupyter-notebook"
+      ],
+      "is_gpu_avaible": [
+        "python -c \"import tensorflow as tf; print('GPU is', 'available' if tf.config.list_physical_devices('GPU') else 'not available')\""
       ]
     }
   }
