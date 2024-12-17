@@ -12,7 +12,7 @@
       "pip -q install jupyter",
       "pip -q install setuptools",
       "pip -q install ipykernel",
-      "pip install -r -q requirements.txt",
+      "pip -q install -r requirements.txt",
       "pip -q install -e .",
       "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN'"
     ],
