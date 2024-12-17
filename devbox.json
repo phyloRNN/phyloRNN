@@ -9,20 +9,23 @@
       "echo 'Welcome to devbox for phyloRNN!' ",
       ". $VENV_DIR/bin/activate",
       "pip -q install --upgrade pip",
+      "pip -q install setuptools",
       "pip -q install ipykernel",
       "pip -q install -r requirements.txt",
       "pip -q install -e .",
-      "python -m ipykernel install --user --name=devbox_kernel --display-name 'Python (devbox)'"
+      "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN'"
     ],
     "scripts": {
       "test": [
         "python -c 'import phyloRNN; print(0)'"
       ],
       "download_clownfish_data": [
+        "mkdir -p data && cd data",
         "wget -c https://datadryad.org/api/v2/files/3194922/download",
         "mv download Chr1.WGAlign.FromBam.Filtered.fasta"
       ],
       "download_model": [
+        "mkdir -p data && cd data",
         "wget https://github.com/phyloRNN/Scripts_and_data/blob/main/Scripts/Trained_models.zip"
       ],
       "install_phyml": [
