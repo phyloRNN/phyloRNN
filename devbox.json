@@ -12,9 +12,8 @@
       "pip -q install jupyter",
       "pip -q install setuptools",
       "pip -q install ipykernel",
-      "pip -q install -r requirements.txt",
-      "pip -q install -e .",
-      "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN'"
+      "pip -q install phyloRNN==0.41.1",
+      "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN' > /dev/null 2>&1"
     ],
     "scripts": {
       "test": [

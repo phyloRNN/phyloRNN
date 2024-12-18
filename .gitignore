@@ -14,3 +14,7 @@ phyloRNN/ali_tmp/
 /data/training_data.npz
 /data/
 /devbox.lock
+/logs/
+/build/
+/dist/
+/scripts/.ipynb_checkpoints/

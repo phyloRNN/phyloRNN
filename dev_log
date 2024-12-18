@@ -1,4 +1,3 @@
-- Update the requirement.txt with correct version of tensorflow + bio/ete. Do a pip freeze.
-- GPU accelration seems to be turn off (see menage when init shell)
-- create /scripts
-- same for /data ?
+- GPU accelration seems to be turn off (see message when init shell)
+- start server host with nohup redirection, echo url
+- test if encapsulation work

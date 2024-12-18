@@ -14,3 +14,6 @@ requires-python = ">=3.8"
 [project.urls]
 "Homepage" = "https://github.com/phyloRNN/phyloRNN"
 "Bug Tracker" = "https://github.com/phyloRNN/phyloRNN/issues"
+
+[tool.setuptools]
+packages = ["phyloRNN"]
