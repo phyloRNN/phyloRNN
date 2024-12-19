@@ -36,7 +36,7 @@
         "sudo apt-get update",
         "sudo apt-get install seq-gen"
       ],
-      "start_server_jupyter_host": [
+      "start_server_jupyter": [
         "nohup jupyter notebook --no-browser --port=8889 --ip=0.0.0.0 &"
       ],
       "show_running_server_jupyter": [
