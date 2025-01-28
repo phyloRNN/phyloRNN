@@ -5,6 +5,10 @@ from .rate_estimator import *
 from .sequence_simulator import pca_from_ali
 from .utilities import *
 import tensorflow as tf
+import sqlite3
+import zlib
+import numpy as np
+import json
 
 
 def generate_features(wd="data", n_eigen=3, output=""):
@@ -127,9 +131,64 @@ def rnn_in_out_dictionaries_from_sim(sim_file=None,
                                      log_rates=True,
                                      log_tree_len=True,
                                      output_list=None,
-                                     include_tree_features=True):
+                                     include_tree_features=True,
+                                     sqlite=False):
     if sim is None:
-        sim = dict(np.load(sim_file, allow_pickle=True))
+        if sqlite:
+
+            # Connect to the SQLite database
+            conn = sqlite3.connect(sim_file)
+            cursor = conn.cursor()
+
+            # Retrieve data from array_info table
+            array_info_dict = {}
+            cursor.execute('SELECT name_, dtype, shape FROM array_info')
+
+            for row in cursor.fetchall():
+                name_, dtype, shape = row
+                array_info_dict[name_] = {
+                    'dtype': dtype,
+                    'shape': eval(shape)[1:] # Remove the first dimension because its just the number of simulation
+                }
+
+            # Query to get the data
+            cursor.execute(
+                "SELECT features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info FROM simulation")
+            rows = cursor.fetchall()
+
+            sim = {
+                'features_ali': [],
+                'features_tree': [],
+                'labels_rates': [],
+                'labels_smodel': [],
+                'labels_tl': [],
+                'info': []
+            }
+
+            def _decompdecode(e, dtype, shape=False):
+                if shape:
+                    return np.frombuffer(zlib.decompress(e), dtype=dtype).reshape(shape)
+                else:
+                    return np.frombuffer(zlib.decompress(e), dtype=dtype)
+
+            for row in rows:
+                sim['features_ali'].append(_decompdecode(row[0],array_info_dict['features_ali']['dtype'], array_info_dict['features_ali']['shape']))
+                sim['features_tree'].append(_decompdecode(row[1],array_info_dict['features_tree']['dtype']))
+                sim['labels_rates'].append(_decompdecode(row[2],array_info_dict['labels_rates']['dtype']) if row[2] else None)
+                sim['labels_smodel'].append(_decompdecode(row[3],array_info_dict['labels_smodel']['dtype'], array_info_dict['labels_smodel']['shape']) if row[3] else None)
+                sim['labels_tl'].append(_decompdecode(row[4],array_info_dict['labels_tl']['dtype'], array_info_dict['labels_tl']['shape']) if row[4] else None)
+                sim['info'].append(np.array(json.loads(row[5])))
+
+            # Tod this reshape could be avoided if we store the labels as a value instead single values array
+            sim['labels_smodel'] = np.array(sim['labels_smodel']).reshape(len(sim['labels_smodel']))
+            sim['labels_tl'] = np.array(sim['labels_tl']).reshape(len(sim['labels_tl']))
+
+
+            # Close the database connection
+            conn.close()
+        else:
+            sim = dict(np.load(sim_file, allow_pickle=True))
+
     if log_rates and sim['labels_rates'] is not None:
         sim['labels_rates'] = np.log10(sim['labels_rates'])
     if log_tree_len:

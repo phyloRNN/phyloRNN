@@ -81,6 +81,7 @@ def simulate_parallel(sim_obj,
     if sim_obj.format_output in  ('sqlite', 'both'):
 
         database = "{}{}.db".format(data, day_tag)
+
         create_table = """
                 CREATE TABLE IF NOT EXISTS simulation (
                     sim_id INTEGER PRIMARY KEY,
@@ -90,12 +91,26 @@ def simulate_parallel(sim_obj,
                     labels_smodel BLOB,
                     labels_tl BLOB,
                     info TEXT
-                )
+            )
             """
+
+        create_compression = """
+                CREATE TABLE IF NOT EXISTS array_info (
+                    id INTEGER PRIMARY KEY,
+                    name_ TEXT,
+                    dtype TEXT,
+                    shape TEXT
+                )
+                """
 
         insert_simulation = """
                     INSERT INTO simulation (features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info)
                     VALUES (?, ?, ?, ?, ?, ?)
+                """
+
+        insert_compression = """
+                    INSERT INTO array_info (name_, dtype, shape)
+                    VALUES (?, ?, ?)
                 """
 
         try:
@@ -103,10 +118,7 @@ def simulate_parallel(sim_obj,
 
                 cursor = conn.cursor()
                 cursor.execute(create_table)
-
-                # Query to get the list of all tables
-                #cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-                #cursor.fetchall()
+                cursor.execute(create_compression)
 
                 features_ali = np.ascontiguousarray(features_ali)
                 features_tree = np.ascontiguousarray(features_tree)
@@ -114,6 +126,17 @@ def simulate_parallel(sim_obj,
                 labels_smodel = np.ascontiguousarray(labels_smodel)
                 labels_tl = np.ascontiguousarray(labels_tl)
 
+                # create dictionay to link array name to the dtype and shape
+                compression = {
+                    'features_ali': {'shape': features_ali.shape, 'dtype': features_ali.dtype},
+                    'features_tree': {'shape': features_tree.shape, 'dtype': features_tree.dtype},
+                    'labels_rates': {'shape': labels_rates.shape, 'dtype': labels_rates.dtype},
+                    'labels_smodel': {'shape': labels_smodel.shape, 'dtype': labels_smodel.dtype},
+                    'labels_tl': {'shape': labels_tl.shape, 'dtype': labels_tl.dtype},
+                }
+
+                for name, val in compression.items():
+                    cursor.execute(insert_compression, (name, str(val['dtype']), str(val['shape'])))
 
                 for i in range(len(features_ali)):
 
