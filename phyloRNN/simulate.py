@@ -5,8 +5,23 @@ from .rnn_builder import *
 from .sequence_simulator import *
 import numpy as np
 import random
+import sqlite3
+import zlib
 import multiprocessing
 from datetime import datetime
+import json
+
+
+# Function to convert numpy data types to native Python data types
+def convert_numpy_types(obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    else:
+        return obj
 
 def simulate_parallel(sim_obj,
                       add_day_tag=True,
@@ -35,33 +50,93 @@ def simulate_parallel(sim_obj,
         print(list_seeds)
         print(len(list_seeds))
         print(list_args)
+
+    if sim_obj.CPUs > 1:
+        pool = multiprocessing.Pool()
+        res = pool.map(sim_obj.run_sim, list_args)
+        pool.close()
     else:
-        if sim_obj.CPUs > 1:
-            pool = multiprocessing.Pool()
-            res = pool.map(sim_obj.run_sim, list_args)
-            pool.close()
-        else:
-            res = [sim_obj.run_sim(list_args[0])]
-        features_ali = []
-        features_tree = []
-        labels_rates = []
-        labels_smodel = []
-        labels_tl = []
-        info = []
+        res = [sim_obj.run_sim(list_args[0])]
+    features_ali = []
+    features_tree = []
+    labels_rates = []
+    labels_smodel = []
+    labels_tl = []
+    info = []
 
-        for i in range(sim_obj.CPUs):
-            features_ali = features_ali + res[i][0]
-            features_tree = features_tree + res[i][1]
-            labels_rates = labels_rates + res[i][2]
-            labels_smodel = labels_smodel + res[i][3]
-            labels_tl = labels_tl + res[i][4]
-            info = info + res[i][5]
+    for i in range(sim_obj.CPUs):
+        features_ali = features_ali + res[i][0]
+        features_tree = features_tree + res[i][1]
+        labels_rates = labels_rates + res[i][2]
+        labels_smodel = labels_smodel + res[i][3]
+        labels_tl = labels_tl + res[i][4]
+        info = info + res[i][5]
 
-        # save arrays
-        if sim_obj.min_rate:
-            min_rate_tag = "_r" + str(np.log10(sim_obj.min_rate))
-        else:
-            min_rate_tag = ""
+    # save arrays
+    if sim_obj.min_rate:
+        min_rate_tag = "_r" + str(np.log10(sim_obj.min_rate))
+    else:
+        min_rate_tag = ""
+
+    if sim_obj.format_output in  ('sqlite', 'both'):
+
+        database = "{}{}.db".format(data, day_tag)
+        create_table = """
+                CREATE TABLE IF NOT EXISTS simulation (
+                    sim_id INTEGER PRIMARY KEY,
+                    features_ali BLOB,
+                    features_tree BLOB,
+                    labels_rates BLOB,
+                    labels_smodel BLOB,
+                    labels_tl BLOB,
+                    info TEXT
+                )
+            """
+
+        insert_simulation = """
+                    INSERT INTO simulation (features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """
+
+        try:
+            with sqlite3.connect(database) as conn:
+
+                cursor = conn.cursor()
+                cursor.execute(create_table)
+
+                # Query to get the list of all tables
+                #cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                #cursor.fetchall()
+
+                features_ali = np.ascontiguousarray(features_ali)
+                features_tree = np.ascontiguousarray(features_tree)
+                labels_rates = np.ascontiguousarray(labels_rates)
+                labels_smodel = np.ascontiguousarray(labels_smodel)
+                labels_tl = np.ascontiguousarray(labels_tl)
+
+
+                for i in range(len(features_ali)):
+
+                    cursor.execute(insert_simulation, (
+                        zlib.compress(np.array(features_ali[i]).tobytes()),
+                        zlib.compress(np.array(features_tree[i]).tobytes()),
+                        zlib.compress(np.array(labels_rates[i]).tobytes()),
+                        zlib.compress(np.array(labels_smodel[i]).tobytes()),
+                        zlib.compress(np.array(labels_tl[i]).tobytes()),
+                        json.dumps(info[i], default=convert_numpy_types),
+                    ))
+
+                # Query to get all rows from the simulation_data table
+                #cursor.execute("SELECT * FROM simulation")
+                #cursor.fetchall()
+
+                conn.commit()
+
+        except sqlite3.OperationalError as e:
+            print(e)
+
+    if sim_obj.format_output in ('npz', 'both'):
+
         np.savez_compressed(
             file="%s%s.npz" % (data, day_tag),
             features_ali=np.array(features_ali),
@@ -101,9 +176,11 @@ class simulator():
                  base_seed = None,
                  min_avg_br_length=0.0002,
                  max_avg_br_length=0.2,
-                 ali_schema="phylip"
+                 ali_schema="phylip",
+                 format_output='sqlite', # 'sqlite' , 'npz, or 'both'
                  ):
         self.DEBUG = DEBUG
+        self.format_output=format_output
         self.verbose = verbose
         self.base_seed = base_seed
         self.base_seed = base_seed

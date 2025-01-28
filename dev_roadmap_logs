@@ -1,9 +1,3 @@
-RoadMap
-    - BENCHMARK GPU-CPU. Use notebook with tensorboard
-    - Update input of model training with streaming dataset
-    - Use TFX
-    - Hypertuning
-
 Fancy - fix - todo
     - GPU accelration seems to be turn off (see message when init shell)
     - start server host with nohup redirection, echo url
