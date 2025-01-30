@@ -269,7 +269,17 @@ def build_rnn_model(model_config: rnn_config,
         comb_outputs = [tf.concat((layers.Flatten()(i), phy_dnn_1), 1) for i in tf.split(ali_rnn_2n,
                                                                                          model_config.n_sites, axis=1)]
     else:
-        comb_outputs = [layers.Flatten()(i) for i in tf.split(ali_rnn_2n, model_config.n_sites, axis=1)]
+
+        class EmbeddedLayer(keras.Layer):
+            def call(self, x):
+                return tf.split(x, model_config.n_sites, axis=1)
+
+        comb_outputs = []
+        for i in EmbeddedLayer()(ali_rnn_2n):
+            x = layers.Flatten()(i)
+            comb_outputs.append(x)
+
+        #comb_outputs = [layers.Flatten()(i) for i in tf.split(ali_rnn_2n, model_config.n_sites, axis=1)]
 
     site_sp_dnn_1_list = [site_dnn_1(i) for i in comb_outputs]
     if model_config.separate_block_nn:
@@ -610,7 +620,7 @@ def save_rnn_model(wd, history, model, feature_rescaler=None, filename=""):
     with open(os.path.join(wd, filename + "_history" + ".pkl"), 'wb') as output:  # Overwrites any existing file.
         pkl.dump(history.history, output, pkl.HIGHEST_PROTOCOL)
     # save model
-    tf.keras.models.save_model(model, os.path.join(wd, filename + '_model'))
+    tf.keras.models.save_model(model, os.path.join(wd, filename + '_model.keras'))
 
 
 def load_rnn_model(wd, filename=""):
