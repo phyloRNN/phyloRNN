@@ -32,7 +32,7 @@ def simulate_parallel(sim_obj,
         day_tag = ""
     data = sim_obj.data_name
 
-    print("\nRunning", data)
+    if sim_obj.verbose: print("\nRunning", data)
     list_seeds = np.arange(sim_obj.base_seed, sim_obj.base_seed + sim_obj.CPUs)
     try:
         os.mkdir(sim_obj.ali_path)
@@ -274,7 +274,7 @@ class simulator():
                 print("mean_br_length", mean_br_length)
                 print_update("simulating tree...")
             else:
-                if init_seed == self.base_seed:
+                if init_seed == self.base_seed and self.verbose:
                     print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
             t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
             # x = pn.pca(t)  # x is a dict with:

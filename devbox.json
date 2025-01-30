@@ -17,7 +17,7 @@
     ],
     "scripts": {
       "test": [
-        "python -c 'import phyloRNN; print(0)'"
+        "python -m unittest tests/*.py"
       ],
       "download_clownfish_data": [
         "mkdir -p data && cd data",
