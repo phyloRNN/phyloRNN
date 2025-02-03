@@ -139,7 +139,7 @@ def get_rnd_rates(n, rate_m="", p=None, verbose=False):
     model_list = ["Gamma", "Bimodal", "GBM", "Spike-and-slab", "Codon"]
     if p is None:
         p = np.ones(len(model_list)) / len(model_list)
-    if rate_m == "autocorrelated":
+    elif rate_m == "autocorrelated":
         p[4] = 0 # codon model only when no sites blocks are used
         p /= np.sum(p)
     d = np.random.choice(model_list, p=p)

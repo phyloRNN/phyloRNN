@@ -6,6 +6,7 @@ from .sequence_simulator import *
 import numpy as np
 import random
 import multiprocessing
+from multiprocessing import get_context
 from datetime import datetime
 
 def simulate_parallel(sim_obj,
@@ -19,6 +20,7 @@ def simulate_parallel(sim_obj,
 
     print("\nRunning", data)
     list_seeds = np.arange(sim_obj.base_seed, sim_obj.base_seed + sim_obj.CPUs)
+    print("Seeds:", list_seeds)
     try:
         os.mkdir(sim_obj.ali_path)
     except(OSError):
@@ -37,9 +39,14 @@ def simulate_parallel(sim_obj,
         print(list_args)
     else:
         if sim_obj.CPUs > 1:
-            pool = multiprocessing.Pool()
-            res = pool.map(sim_obj.run_sim, list_args)
-            pool.close()
+            
+            p = get_context("fork").Pool(sim_obj.CPUs)
+            res = p.map(sim_obj.run_sim, list_args)
+            p.close()
+            
+            # pool = multiprocessing.Pool()
+            # res = pool.map(sim_obj.run_sim, list_args)
+            # pool.close()
         else:
             res = [sim_obj.run_sim(list_args[0])]
         features_ali = []
@@ -101,7 +108,9 @@ class simulator():
                  base_seed = None,
                  min_avg_br_length=0.0002,
                  max_avg_br_length=0.2,
-                 ali_schema="phylip"
+                 ali_schema="phylip",
+                 tree_files=None, # use predefined tree for simulation
+                 label_array=None,
                  ):
         self.DEBUG = DEBUG
         self.verbose = verbose
@@ -132,6 +141,8 @@ class simulator():
         self.min_avg_br_length = min_avg_br_length
         self.max_avg_br_length = max_avg_br_length
         self.ali_schema = ali_schema
+        self.tree_files = tree_files
+        self.label_array = label_array
 
     def reset_prms(self, CPUs, n_sims, data_name, base_seed, run_phyml=None):
         self.CPUs = CPUs
@@ -141,7 +152,7 @@ class simulator():
         if run_phyml is not None:
             self.run_phyml = run_phyml
 
-    def run_sim(self, args):
+    def run_sim(self, args, tree_indx=None):
         [init_seed, n_sims, save_ali, run_phyml_estimation] = args
         seed = random.randint(0, 1000) + init_seed
         rs = get_rnd_gen(seed)
@@ -169,16 +180,29 @@ class simulator():
                     sites_indices = np.sort(rs.integers(0, blocks, self.n_sites))
 
             # 1. Simulate a tree and get the eigenvectors
-            mean_br_length = np.exp(rs.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
-            if self.verbose:
-                print("mean_br_length", mean_br_length)
-                print_update("simulating tree...")
+            if self.tree_files is None:
+                mean_br_length = np.exp(rs.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
+                if self.verbose:
+                    print("mean_br_length", mean_br_length)
+                    print_update("simulating tree...")
+                else:
+                    if init_seed == self.base_seed:
+                        print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
+                t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
+                # x = pn.pca(t)  # x is a dict with:
+                # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
             else:
-                if init_seed == self.base_seed:
-                    print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
-            t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
-            # x = pn.pca(t)  # x is a dict with:
-            # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
+                if tree_indx is None:
+                    tree_indx = rs.integers(0, len(self.tree_files))
+                tree_file = self.tree_files[tree_indx]
+                t = dendropy.Tree.get(schema="newick", path=tree_file)
+                # TODO: expose rescale tree
+                for edge in t.postorder_edge_iter():
+                    edge.length = edge.length / 50
+
+                mean_br_length = None
+                if self.label_array is not None:
+                    additional_labels = self.label_array[tree_indx]
 
             # 2. Set the rates for each site and the number of sites of a given rate
             # vector specifying the number of sites under a specific rate (default: 1)
@@ -279,7 +303,12 @@ class simulator():
             features_ali.append(onehot_features)
             features_tree.append(eigenvec_features)
             labels_rates.append(scale_labels)
-            labels_tl.append(t.length())
+
+            if self.label_array is not None:
+                labels_tl.append(np.array([t.length()] + list(additional_labels)))
+            else:
+                labels_tl.append(t.length())
+
             if not self.subs_model_per_block:
                 labels_smodel.append(model_indx)
 
@@ -301,7 +330,7 @@ class simulator():
             else:
                 save_ali_tmp = ""
 
-            info.append({
+            info_dic = {
                 "n_blocks": blocks,
                 "mean_br_length": mean_br_length,
                 "rate_het_model": [rate_het_model, het_r, rate_m],
@@ -312,8 +341,13 @@ class simulator():
                 "r_ml_est": r_ml_est,
                 "tl_ml_est": tl_ml_est,
                 "ali_file": save_ali_tmp
-            })
+            }
 
+            if self.tree_files is not None:
+                info_dic["tree_file"] = tree_file
+
+
+            info.append(info_dic)
         return [features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info]
 
 
