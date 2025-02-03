@@ -706,11 +706,16 @@ def save_rnn_model(wd, history, model, feature_rescaler=None, filename=""):
     with open(os.path.join(wd, filename + "_history" + ".pkl"), 'wb') as output:  # Overwrites any existing file.
         pkl.dump(history.history, output, pkl.HIGHEST_PROTOCOL)
     # save model
-    tf.keras.models.save_model(model, os.path.join(wd, filename + '_model'))
-
+    try:
+        tf.keras.models.save_model(model, os.path.join(wd, filename + '_model'))
+    except:
+        tf.keras.models.save_model(model, os.path.join(wd, filename + '_model.keras'))
 
 def load_rnn_model(wd, filename=""):
-    model = tf.keras.models.load_model(os.path.join(wd, filename))
+    try:
+        model = tf.keras.models.load_model(os.path.join(wd, filename))
+    except:
+        model = tf.keras.models.load_model(os.path.join(wd, filename + '.keras'))
     return model
 
 
