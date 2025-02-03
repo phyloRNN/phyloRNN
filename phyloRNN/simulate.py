@@ -180,14 +180,14 @@ class simulator():
                     sites_indices = np.sort(rs.integers(0, blocks, self.n_sites))
 
             # 1. Simulate a tree and get the eigenvectors
+            if init_seed == self.base_seed:
+                print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
+
             if self.tree_files is None:
                 mean_br_length = np.exp(rs.uniform(np.log(self.min_avg_br_length), np.log(self.max_avg_br_length)))
                 if self.verbose:
                     print("mean_br_length", mean_br_length)
                     print_update("simulating tree...")
-                else:
-                    if init_seed == self.base_seed:
-                        print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
                 t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
                 # x = pn.pca(t)  # x is a dict with:
                 # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
@@ -294,8 +294,11 @@ class simulator():
             onehot_features = onehot_rs_2.reshape(self.n_sites, self.n_taxa * len(l))
 
             # get tree eigenvectors
-            eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"] # shape = (n_taxa, n_taxa)
-            eigenvec_features = eigenvec[:,range(self.n_eigen_features)].flatten()
+            if self.n_eigen_features > 0:
+                eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"] # shape = (n_taxa, n_taxa)
+                eigenvec_features = eigenvec[:,range(self.n_eigen_features)].flatten()
+            else:
+                eigenvec_features = [0]
 
             if self.verbose:
                 print_update("extracting features...done\n")
