@@ -172,7 +172,7 @@ class simulator():
                 if np.random.random() < self.freq_mixed_models:
                     rate_m = "mixed_model"
                     blocks = 2 # np.min([np.random.geometric(p=0.1), n_sites])  # mean = 10
-                    sites_indices = np.sort(np.random.randint(0, blocks, self.n_sites))
+                    sites_indices = np.sort(rs.randint(0, blocks, self.n_sites))
                 else:
                     # autocorrelated rates
                     rate_m = "autocorrelated"
@@ -192,17 +192,23 @@ class simulator():
                 # x = pn.pca(t)  # x is a dict with:
                 # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
             else:
+                # print(tree_indx, init_seed)
                 if tree_indx is None:
-                    tree_indx = rs.integers(0, len(self.tree_files))
-                tree_file = self.tree_files[tree_indx]
+                    tree_indx_i = rs.integers(0, len(self.tree_files))
+                    if init_seed == self.base_seed:
+                        print("\nsim", sim_i, "tree_indx", tree_indx_i)
+                tree_file = self.tree_files[tree_indx_i]
+                # print(init_seed, tree_file, tree_indx_i)
                 t = dendropy.Tree.get(schema="newick", path=tree_file)
                 # TODO: expose rescale tree
+                # tmp_tl = t.length()
+                # print(tmp_tl)
                 for edge in t.postorder_edge_iter():
-                    edge.length = edge.length / 50
+                    edge.length = edge.length / self.n_taxa
 
                 mean_br_length = None
                 if self.label_array is not None:
-                    additional_labels = self.label_array[tree_indx]
+                    additional_labels = self.label_array[tree_indx_i]
 
             # 2. Set the rates for each site and the number of sites of a given rate
             # vector specifying the number of sites under a specific rate (default: 1)
