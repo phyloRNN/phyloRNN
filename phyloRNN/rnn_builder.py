@@ -262,6 +262,182 @@ def build_rnn_model_tf211(model_config: rnn_config,
 
 
 
+
+def build_rnn_model_generator(model_config: rnn_config,
+                    optimizer=keras.optimizers.RMSprop(1e-3),
+                    print_summary=False
+                    ):
+    ali_input = layers.Input(shape=(model_config.n_sites,
+                                   model_config.n_species * model_config.n_onehot,),
+                            )
+
+    inputs = [ali_input]
+
+    # lstm on sequence data
+    if not model_config.bidirectional_lstm:
+        ali_rnn_1 = layers.LSTM(model_config.lstm_nodes[0], return_sequences=True, activation='tanh',
+                                recurrent_activation='sigmoid', name="sequence_LSTM_1")(ali_input)
+        if model_config.layers_norm:
+            ali_rnn_1n = layers.LayerNormalization(name='layer_norm_rnn1')(ali_rnn_1)
+        else:
+            ali_rnn_1n = ali_rnn_1
+        ali_rnn_2 = layers.LSTM(model_config.lstm_nodes[1], return_sequences=True, activation='tanh',
+                                recurrent_activation='sigmoid', name="sequence_LSTM_2")(ali_rnn_1n)
+        if model_config.layers_norm:
+            ali_rnn_2n = layers.LayerNormalization(name='layer_norm_rnn2')(ali_rnn_2)
+        else:
+            ali_rnn_2n = ali_rnn_2
+    else:
+        ali_rnn_1 = layers.Bidirectional(
+            layers.LSTM(model_config.lstm_nodes[0], return_sequences=True, activation='tanh',
+                        recurrent_activation='sigmoid', name="sequence_LSTM_1"))(ali_input)
+        if model_config.layers_norm:
+            ali_rnn_1n = layers.LayerNormalization(name='layer_norm_rnn1')(ali_rnn_1)
+        else:
+            ali_rnn_1n = ali_rnn_1
+        ali_rnn_2 = layers.Bidirectional(
+            layers.LSTM(model_config.lstm_nodes[1], return_sequences=True, activation='tanh',
+                        recurrent_activation='sigmoid', name="sequence_LSTM_2"))(ali_rnn_1n)
+        if model_config.layers_norm:
+            ali_rnn_2n = layers.LayerNormalization(name='layer_norm_rnn2')(ali_rnn_2)
+        else:
+            ali_rnn_2n = ali_rnn_2
+
+
+    if model_config.n_eigenvec:
+        # dense on phylo data
+        phy_dnn_1 = layers.Dense(model_config.nn_phylo_features, activation='relu', name="phylo_FC_1")(phy_input)
+
+    #--- block w shared prms
+    site_dnn_1 = layers.Dense(model_config.nn_shared_rate_tl, activation='swish', name="site_NN")
+
+    if model_config.separate_block_nn:
+        site_dnn_1_tl = layers.Dense(model_config.nn_shared_rate_tl, activation='swish', name="site_NN_tl")
+
+
+    print("Creating blocks...")
+    if model_config.n_eigenvec:
+        comb_outputs = [tf.concat((layers.Flatten()(i), phy_dnn_1), 1) for i in tf.split(ali_rnn_2n,
+                                                                                         model_config.n_sites, axis=1)]
+    else:
+        class EmbeddedLayer(Layer):
+            def call(self, x):
+                return tf.split(x, model_config.n_sites, axis=1)
+
+        comb_outputs = []
+        for i in EmbeddedLayer()(ali_rnn_2n):
+            x = layers.Flatten()(i)
+            comb_outputs.append(x)
+        #spl = ali_rnn_2n #SplitLayer()(ali_rnn_2n)
+
+        # x = MyLayer()(x)
+
+
+        # comb_outputs = []
+        # for i in tf.split(ali_rnn_2n, model_config.n_sites, axis=1):
+        #     comb_outputs.append(layers.Flatten()(i))
+
+        # comb_outputs = ali_rnn_2n # [layers.Flatten()(i) for i in spl]
+
+    site_sp_dnn_1_list = [site_dnn_1(i) for i in comb_outputs]
+    if model_config.separate_block_nn:
+        site_sp_dnn_1_list_tl = [site_dnn_1_tl(i) for i in comb_outputs]
+
+    # add second DNN layer (1 node per site)
+    if model_config.pool_per_site:
+        site_dnn_2 = layers.Dense(1, activation='swish', name="site_rate_hidden2")
+        if model_config.separate_block_nn:
+            site_sp_dnn_2_list = [site_dnn_2(i) for i in site_sp_dnn_1_list_tl]
+        else:
+            site_sp_dnn_2_list = [site_dnn_2(i) for i in site_sp_dnn_1_list]
+        concat_1 = layers.concatenate(site_sp_dnn_2_list)
+    else:
+        concat_1 = layers.concatenate(site_sp_dnn_1_list)
+    print("done")
+    #---
+
+    # Merge all available features into a single large vector via concatenation
+    # concat_1 = layers.concatenate([ali_rnn_3, phy_dnn_1])
+    outputs = []
+    loss = {}
+    loss_w = {}
+    # output 1: per-site rate
+    if 'per_site_rate' in model_config.output_list:
+        site_rate_1 = layers.Dense(model_config.nn_rate[0], activation='swish', name="site_rate_hidden")
+        if len(model_config.nn_rate) > 1:
+            print("Warning: only single nn_rate layer is currently supported!")
+        site_rate_1_list = [site_rate_1(i) for i in site_sp_dnn_1_list]
+        rate_pred_nn = layers.Dense(1, activation=model_config.output_f[0], name="per_site_rate_split")
+        rate_pred_list = [rate_pred_nn(i) for i in site_rate_1_list]
+        # rate_pred =  layers.Dense(1, activation='linear', name="per_site_rate")(layers.concatenate(rate_pred_list))
+
+        if not model_config.mean_normalize_rates:
+            rate_pred = layers.Flatten(name="per_site_rate")(layers.concatenate(rate_pred_list))
+        else:
+            def mean_rescale(x):
+                return x / tf.reduce_mean(x, axis=1, keepdims=True)
+
+            generic_utils.get_custom_objects().update({'mean_rescale': Activation(mean_rescale)})
+            rate_pred_tmp = layers.Flatten(name="per_site_rate_tmp")(layers.concatenate(rate_pred_list))
+            rate_pred = layers.Activation(mean_rescale, name='per_site_rate')(rate_pred_tmp)
+
+        outputs.append(rate_pred)
+        loss['per_site_rate'] = keras.losses.MeanSquaredError()
+        loss_w["per_site_rate"] = model_config.loss_weights[0]
+
+    # output 2: model test (e.g. JC, HKY, GTR)
+    if 'sub_model' in model_config.output_list:
+        subst_model_1 = layers.Dense(model_config.nn_sub_model[0], activation='relu', name="sub_model_hidden")(concat_1)
+        sub_model_pred = layers.Dense(len(model_config.sub_models), activation=model_config.output_f[1], name="sub_model")(subst_model_1)
+        outputs.append(sub_model_pred)
+        loss['sub_model'] = keras.losses.CategoricalCrossentropy(from_logits=False)
+        loss_w['sub_model'] = model_config.loss_weights[1]
+
+    # output 3: tree length
+    if 'tree_len' in model_config.output_list:
+        tree_len_1 = layers.Dense(model_config.nn_tl[0], activation='swish', name="tree_len_hidden")(concat_1)
+        if len(model_config.nn_tl) == 1:
+            tree_len_pred = layers.Dense(model_config.tl_params, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
+        else:
+            if model_config.nn_tl[1] > 0:
+                tree_len_2 = layers.Dense(model_config.nn_tl[1], activation='swish', name="tree_len_hidden_2")(tree_len_1)
+                tree_len_pred = layers.Dense(model_config.tl_params, activation=model_config.output_f[2], name="tree_len")(tree_len_2)
+            else:
+                tree_len_pred = layers.Dense(model_config.tl_params, activation=model_config.output_f[2], name="tree_len")(tree_len_1)
+        outputs.append(tree_len_pred)
+        loss['tree_len'] = keras.losses.MeanSquaredError()
+        loss_w['tree_len'] = model_config.loss_weights[2]
+
+    # output combined
+    if 'per_site_abs_rate' in model_config.output_list:
+        absolute_rate = layers.Multiply(name='per_site_abs_rate')([rate_pred, tree_len_pred])
+        outputs.append(absolute_rate)
+        loss['per_site_abs_rate'] = keras.losses.MeanSquaredError()
+        loss_w['per_site_abs_rate'] = 1
+
+
+    # Instantiate an end-to-end model predicting both rates and substitution model
+    model = keras.Model(
+        inputs=inputs,
+        outputs=outputs,
+    )
+
+    model.compile(
+        optimizer=optimizer,
+        loss=loss,
+        loss_weights=loss_w
+    )
+
+    if print_summary:
+        print(model.summary())
+
+    print("Loss:", loss, loss_w)
+    print("N. model parameters:", model.count_params())
+
+    return model
+
+
+
 ###### end test
 
 
