@@ -195,8 +195,8 @@ class simulator():
                 # print(tree_indx, init_seed)
                 if tree_indx is None:
                     tree_indx_i = rs.integers(0, len(self.tree_files))
-                    if init_seed == self.base_seed:
-                        print("\nsim", sim_i, "tree_indx", tree_indx_i)
+                    # if init_seed == self.base_seed:
+                    #     print("\nsim", sim_i, "tree_indx", tree_indx_i)
                 tree_file = self.tree_files[tree_indx_i]
                 # print(init_seed, tree_file, tree_indx_i)
                 t = dendropy.Tree.get(schema="newick", path=tree_file)
