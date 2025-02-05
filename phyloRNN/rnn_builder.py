@@ -267,11 +267,22 @@ def build_rnn_model_generator(model_config: rnn_config,
                     optimizer=keras.optimizers.RMSprop(1e-3),
                     print_summary=False
                     ):
-    ali_input = layers.Input(shape=(model_config.n_sites,
-                                   model_config.n_species * model_config.n_onehot,),
-                            )
 
-    inputs = [ali_input]
+    # ali_input = layers.Input(shape=(model_config.n_sites,
+    #                                model_config.n_species * model_config.n_onehot,),
+    #                         )
+    #
+    # inputs = ali_input
+
+    ali_input = keras.Input(shape=(model_config.n_sites, model_config.n_species * model_config.n_onehot,),
+                            name="sequence_data")
+    if model_config.n_eigenvec:
+        phy_input = keras.Input(shape=(model_config.n_species * model_config.n_eigenvec,),
+                                name="eigen_vectors")
+        inputs = [ali_input, phy_input]
+    else:
+        inputs = [ali_input]
+
 
     # lstm on sequence data
     if not model_config.bidirectional_lstm:
