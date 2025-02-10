@@ -93,6 +93,7 @@ class simulator():
                  n_eigen_features = 3,
                  min_rate = 0,  #
                  freq_uncorrelated_sites = 0.5,
+                 freq_seqgen_codon=0,
                  freq_mixed_models = 0.5,
                  p_heterogeneity_model = None, # # ["Gamma", "Bimodal", "GBM", "Spike-and-slab", "Codon"]
                  store_mixed_model_info = False,
@@ -125,6 +126,7 @@ class simulator():
         self.min_rate = min_rate
         self.freq_uncorrelated_sites = freq_uncorrelated_sites
         self.freq_mixed_models = freq_mixed_models
+        self.freq_seqgen_codon = freq_seqgen_codon
         self.p_heterogeneity_model = p_heterogeneity_model
         self.store_mixed_model_info = store_mixed_model_info
         self.tree_builder = tree_builder
@@ -164,12 +166,19 @@ class simulator():
         info = []
         subs_models = np.array(['JC', 'HKY', 'GTR'])
         for sim_i in range(n_sims):
-            if rs.random() < self.freq_uncorrelated_sites:
+
+            rnd_r = rs.random(3)
+
+            if rnd_r[0] < self.freq_seqgen_codon:
+                rate_m = "seqgen_codon_model"
+                blocks = 1
+                sites_indices = np.arange(blocks)
+            elif rnd_r[1] < self.freq_uncorrelated_sites:
                 rate_m = "uncorrelated"
                 blocks = self.n_sites
                 sites_indices = np.arange(blocks)
             else:
-                if np.random.random() < self.freq_mixed_models:
+                if rnd_r[2] < self.freq_mixed_models:
                     rate_m = "mixed_model"
                     blocks = 2 # np.min([np.random.geometric(p=0.1), n_sites])  # mean = 10
                     sites_indices = np.sort(rs.randint(0, blocks, self.n_sites))
@@ -258,23 +267,38 @@ class simulator():
             # simulate the data
             if self.verbose:
                 print_update("simulating tree...done\nsimulating data...")
-            aln = simulateDNA(t,
-                              sites_per_scale[0],
-                              scale=scale[0],
-                              subs_model=subs_model_array[0],
-                              freq=freq,
-                              rates = rates,
-                              ti_tv = ti_tv,
-                              seqgen_path=self.seqgen_path)
-            for i in range(1, len(sites_per_scale)):
-                d = simulateDNA(t, sites_per_scale[i],
-                                scale=scale[i],
-                                subs_model=subs_model_array[i],
-                                freq=freq,
-                                rates=rates,
-                                ti_tv=ti_tv,
-                                seqgen_path=self.seqgen_path)
-                aln.char_matrices[0].extend_matrix(d.char_matrices[0])
+            if rate_m == "seqgen_codon_model":
+                codon_r1 = np.exp(rs.normal(0, 0.1))  # rate second position
+                codon_r0 = codon_r1 * rs.uniform(1, 5)
+                codon_r2 = codon_r1 * rs.uniform(5, 15)
+
+                aln = simulateDNA(t,
+                                  sites_per_scale[0],
+                                  scale=scale[0],
+                                  subs_model=subs_model_array[0],
+                                  freq=freq,
+                                  rates = rates,
+                                  ti_tv = ti_tv,
+                                  codon_pos_rates=(str(codon_r0), str(codon_r1), str(codon_r2)),
+                                  seqgen_path=self.seqgen_path)
+            else:
+                aln = simulateDNA(t,
+                                  sites_per_scale[0],
+                                  scale=scale[0],
+                                  subs_model=subs_model_array[0],
+                                  freq=freq,
+                                  rates = rates,
+                                  ti_tv = ti_tv,
+                                  seqgen_path=self.seqgen_path)
+                for i in range(1, len(sites_per_scale)):
+                    d = simulateDNA(t, sites_per_scale[i],
+                                    scale=scale[i],
+                                    subs_model=subs_model_array[i],
+                                    freq=freq,
+                                    rates=rates,
+                                    ti_tv=ti_tv,
+                                    seqgen_path=self.seqgen_path)
+                    aln.char_matrices[0].extend_matrix(d.char_matrices[0])
 
             if self.verbose:
                 print_update("simulating data...done\nextracting features...")

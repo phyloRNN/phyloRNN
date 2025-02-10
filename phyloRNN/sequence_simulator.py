@@ -74,6 +74,7 @@ def simulateDNA(tree, seq_length,
                 scale=1.0,
                 dir_shape_freq=10,
                 dir_shape_rate=5,
+                codon_pos_rates=None,
                 seqgen_path=None):
     s = dp.interop.seqgen.SeqGen()
     if seqgen_path:
@@ -87,7 +88,7 @@ def simulateDNA(tree, seq_length,
     # s.gamma_cats = 8
     # s.ti_tv = 0.5 # default = 0.5
     """
-    A transition transversion ratio of 0.5 is the equivalent to equal rates of tansitions and transversions 
+    A transition transversion ratio of 0.5 is the equivalent to equal rates of transitions and transversions 
     because there are twice as many possible transversions.
     """
 
@@ -115,6 +116,10 @@ def simulateDNA(tree, seq_length,
             # s.general_rates = [i / tot for i in r]
 
     # print([i/s.general_rates[-1] for i in s.general_rates])
+
+    if codon_pos_rates is not None:
+        s.codon_pos_rates = codon_pos_rates
+
     return s.generate(tree)
 
 
