@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
+from tensorflow.keras.layers import Layer
 from tensorflow.keras import metrics
 np.set_printoptions(suppress=True, precision=3)
 import os
@@ -270,7 +271,7 @@ def build_rnn_model(model_config: rnn_config,
                                                                                          model_config.n_sites, axis=1)]
     else:
 
-        class EmbeddedLayer(keras.Layer):
+        class EmbeddedLayer(Layer):
             def call(self, x):
                 return tf.split(x, model_config.n_sites, axis=1)
 

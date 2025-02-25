@@ -8,7 +8,6 @@ import zlib
 def _decompdecode(e, dtype, shape):
     return np.frombuffer(zlib.decompress(e), dtype=dtype).reshape(shape[1:])
 
-
 class Simulation(unittest.TestCase):
 
     def setUp(self):
@@ -67,7 +66,6 @@ class Simulation(unittest.TestCase):
             self.assertEqual(self.npz[column].shape, np.array(datum).shape)
 
         sqlite.close()
-
 
 if __name__ == '__main__':
     unittest.main()
