@@ -14,7 +14,9 @@ class Simulation(unittest.TestCase):
 
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
-        self.temp_file_path = self.temp_dir.name + '/temp_data_file'
+
+
+        self.temp_file_path =   self.temp_dir.name + '/temp_data_file'
 
         self.sim = pn.simulator(
             n_taxa=10,

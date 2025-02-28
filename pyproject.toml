@@ -4,12 +4,21 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phyloRNN"
-version = "0.43"
+version = "0.44"
 authors = [
   { name="Davide Silvestro", email="davide.silvestro@unil.ch" },
   { name="Thibault Latrille", email="thibault.latrille@unil.ch" },
 ]
 requires-python = ">=3.8"
+dependencies = [
+  "tensorflow==2.18.0",
+  "pandas==2.2.3",
+  "seaborn==0.11.2",
+  "matplotlib==3.7.3",
+  "dendroPy==5.0.1",
+  "biopython==1.85",
+  "ete3==3.1.3"
+]
 
 [project.urls]
 "Homepage" = "https://github.com/phyloRNN/phyloRNN"
