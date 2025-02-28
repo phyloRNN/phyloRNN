@@ -8,12 +8,12 @@ with open("requirements.txt") as f:
 
 setuptools.setup(
     name="phyloRNN",
-    version="0.41.1",
-    author="Davide Silvestro, Thibault Latrille",
+    version="0.42",
+    author="Daniele Silvestro, Thibault Latrille",
     author_email="davide.silvestro@unil.ch, thibault.latrille@unil.ch",
     description="A project for phylogenetic analysis using RNNs",
     url="https://github.com/phyloRNN/phyloRNN",
     packages=setuptools.find_packages(),
-    python_requires='>=3.8',
+    python_requires='>=3.9',
     install_requires=requirements,
 )

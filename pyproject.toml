@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "phyloRNN"
-version = "0.41"
+version = "0.42"
 authors = [
   { name="Davide Silvestro", email="davide.silvestro@unil.ch" },
   { name="Thibault Latrille", email="thibault.latrille@unil.ch" },
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 
 [project.urls]
 "Homepage" = "https://github.com/phyloRNN/phyloRNN"
