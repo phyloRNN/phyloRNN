@@ -17,6 +17,7 @@ sim = pn.simulator(
                    ali_path = None,                                            # system-wide installed software
                    DEBUG=False,
                    verbose = False,
+                   format_output='sqlite', # 'sqlite' , 'npz, or 'both'
                    )
 
 

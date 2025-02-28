@@ -11,6 +11,12 @@ import numpy as np
 import json
 
 
+def _decompdecode(e, dtype, shape=False):
+    if shape:
+        return np.frombuffer(zlib.decompress(e), dtype=dtype).reshape(shape)
+    else:
+        return np.frombuffer(zlib.decompress(e), dtype=dtype)
+
 def generate_features(wd="data", n_eigen=3, output=""):
     feature_set = []
     label_set = []
@@ -126,6 +132,72 @@ def np_to_tf(x, type=np.float32):
         tf_x = tf.convert_to_tensor(np.array(x), type)
     return tf_x
 
+
+def sqlite_data_generator(db_path, batch_size):
+
+    """Generator that loads data from an SQLite database in batches."""
+    conn = sqlite3.connect(db_path)  # Connect to the database
+    cursor = conn.cursor()
+
+    # Retrieve data from array_info table
+    array_info_dict = {}
+    cursor.execute('SELECT name_, dtype, shape FROM array_info')
+
+    for row in cursor.fetchall():
+        name_, dtype, shape = row
+        array_info_dict[name_] = {
+            'dtype': dtype,
+            'shape': eval(shape)[1:]  # Remove the first dimension because its just the number of simulation
+        }
+
+    cursor.execute("SELECT COUNT(*) FROM simulation")
+    total_samples = cursor.fetchone()[0]  # Get total number of rows
+
+    for offset in range(0, total_samples, batch_size):
+
+        # Query to get the data
+        query = "SELECT features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info FROM simulation  LIMIT ? OFFSET ?"
+        cursor.execute(query, (batch_size, offset))
+        rows = cursor.fetchall()
+
+        if not rows:
+            break  # Stop if no more data
+
+        sim = {
+            'features_ali': [],
+            'features_tree': [],
+            'labels_rates': [],
+            'labels_smodel': [],
+            'labels_tl': [],
+            'info': []
+        }
+
+        for row in rows:
+            sim['features_ali'].append(_decompdecode(row[0], array_info_dict['features_ali']['dtype'],
+                                                     array_info_dict['features_ali']['shape']))
+            sim['features_tree'].append(_decompdecode(row[1], array_info_dict['features_tree']['dtype']))
+            sim['labels_rates'].append(
+                _decompdecode(row[2], array_info_dict['labels_rates']['dtype']) if row[2] else None)
+            sim['labels_smodel'].append(_decompdecode(row[3], array_info_dict['labels_smodel']['dtype'],
+                                                      array_info_dict['labels_smodel']['shape']) if row[3] else None)
+            sim['labels_tl'].append(
+                _decompdecode(row[4], array_info_dict['labels_tl']['dtype'], array_info_dict['labels_tl']['shape']) if
+                row[4] else None)
+            sim['info'].append(np.array(json.loads(row[5])))
+
+        # Tod this reshape could be avoided if we store the labels as a value instead single values array
+        sim['labels_smodel'] = np.array(sim['labels_smodel']).reshape(len(sim['labels_smodel']))
+        sim['labels_tl'] = np.array(sim['labels_tl']).reshape(len(sim['labels_tl']))
+
+        sim, dict_inputs, dict_outputs = rnn_in_out_dictionaries_from_sim(sim=sim, log_rates=False,
+                                                                             log_tree_len=True,
+                                                                             output_list=['per_site_rate', 'tree_len'],
+                                                                             include_tree_features=False, sqlite=True)
+
+        yield dict_inputs, dict_outputs
+
+    conn.close()
+
 def rnn_in_out_dictionaries_from_sim(sim_file=None,
                                      sim=None,
                                      log_rates=True,
@@ -164,12 +236,6 @@ def rnn_in_out_dictionaries_from_sim(sim_file=None,
                 'labels_tl': [],
                 'info': []
             }
-
-            def _decompdecode(e, dtype, shape=False):
-                if shape:
-                    return np.frombuffer(zlib.decompress(e), dtype=dtype).reshape(shape)
-                else:
-                    return np.frombuffer(zlib.decompress(e), dtype=dtype)
 
             for row in rows:
                 sim['features_ali'].append(_decompdecode(row[0],array_info_dict['features_ali']['dtype'], array_info_dict['features_ali']['shape']))

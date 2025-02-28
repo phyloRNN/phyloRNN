@@ -6,12 +6,13 @@ import phyloRNN as pn
 @profile
 def train():
     # load data
-    sim, dict_inputs, dict_outputs = pn.rnn_in_out_dictionaries_from_sim("training_data_taxa_50_sites1000_20000.db",
-                                                                         log_rates=False,
-                                                                         log_tree_len=True,
-                                                                         output_list=['per_site_rate', 'tree_len'],
-                                                                         include_tree_features=False,
-                                                                         sqlite=True)
+    sim, dict_inputs, dict_outputs = pn.rnn_in_out_dictionaries_from_sim(
+        "../data/training_data_taxa_50_sites1000_20000.db",
+        log_rates=False,
+        log_tree_len=True,
+        output_list=['per_site_rate', 'tree_len'],
+        include_tree_features=False,
+        sqlite=True)
     # setup model architecture
     model_config = pn.rnn_config(n_sites=1000, n_taxa=50)  # default settings
 

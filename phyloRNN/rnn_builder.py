@@ -10,6 +10,7 @@ np.set_printoptions(suppress=True, precision=3)
 import os
 import pickle as pkl
 import scipy.stats
+from .parse_data import sqlite_data_generator
 
 from keras.layers import Activation
 from tensorflow.python.keras.utils import generic_utils
@@ -802,4 +803,39 @@ if __name__ == "__main__":
     model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mae', 'mse'])
     model.summary()
 
+def train_on_sql_batch(model, epochs,batch_size, sqlite_fn, patience=5, early_stopping = False, verbose=True):
+
+    history = []  # Store loss and accuracy per epoch
+    best_val_loss = float("inf")
+    wait = 0  # Counter for early stopping
+    patience = patience
+
+    for epoch in range(epochs):
+
+        epoch_loss, num_batches = 0, 0
+
+        batch_gen = sqlite_data_generator(sqlite_fn, batch_size)
+
+        for X_batch, y_batch in batch_gen:
+            t = model.train_on_batch(X_batch, y_batch)  # Train on a single batch
+            epoch_loss += t[0]
+            num_batches += 1
+
+        epoch_loss = epoch_loss / num_batches
+        history.append(epoch_loss)
+
+        if verbose:
+            print("Epoch {} - Loss {}".format(epoch,epoch_loss))
+
+        # Early stopping check
+        if history[-1] < best_val_loss:
+            best_val_loss = history[-1]
+            wait = 0  # Reset patience counter
+        else:
+            wait += 1  # Increment patience counter
+            if wait >= patience and early_stopping:
+                print(f"Early stopping triggered at epoch {epoch + 1}")
+                break  # Stop training
+
+    return  model, history
 
