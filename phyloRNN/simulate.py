@@ -117,6 +117,12 @@ def simulate_parallel(sim_obj,
             with sqlite3.connect(database) as conn:
 
                 cursor = conn.cursor()
+
+                # Apply performance optimizations
+                cursor.execute("PRAGMA journal_mode=WAL;")  # Enables concurrent reads/writes
+                cursor.execute("PRAGMA synchronous=OFF;")  # Speeds up inserts
+                cursor.execute("PRAGMA cache_size=-64000;")  # Use a larger cache
+
                 cursor.execute(create_table)
                 cursor.execute(create_compression)
 
@@ -135,23 +141,24 @@ def simulate_parallel(sim_obj,
                     'labels_tl': {'shape': labels_tl.shape, 'dtype': labels_tl.dtype},
                 }
 
-                for name, val in compression.items():
-                    cursor.execute(insert_compression, (name, str(val['dtype']), str(val['shape'])))
+                cursor.executemany(insert_compression,
+                                   [(name, str(val['dtype']), str(val['shape'])) for name, val in compression.items()])
 
-                for i in range(len(features_ali)):
-
-                    cursor.execute(insert_simulation, (
-                        zlib.compress(np.array(features_ali[i]).tobytes()),
-                        zlib.compress(np.array(features_tree[i]).tobytes()),
-                        zlib.compress(np.array(labels_rates[i]).tobytes()),
-                        zlib.compress(np.array(labels_smodel[i]).tobytes()),
-                        zlib.compress(np.array(labels_tl[i]).tobytes()),
+                # **Bulk compress data before insertion** (Avoids repeated function calls)
+                compressed_data = [
+                    (
+                        zlib.compress(features_ali[i].tobytes()),
+                        zlib.compress(features_tree[i].tobytes()),
+                        zlib.compress(labels_rates[i].tobytes()),
+                        zlib.compress(labels_smodel[i].tobytes()),
+                        zlib.compress(labels_tl[i].tobytes()),
                         json.dumps(info[i], default=convert_numpy_types),
-                    ))
+                    )
+                    for i in range(len(features_ali))
+                ]
 
-                # Query to get all rows from the simulation_data table
-                #cursor.execute("SELECT * FROM simulation")
-                #cursor.fetchall()
+                # **Batch insert using `executemany`**
+                cursor.executemany(insert_simulation, compressed_data)
 
                 conn.commit()
 
