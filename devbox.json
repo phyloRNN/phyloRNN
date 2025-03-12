@@ -13,6 +13,7 @@
       "pip -q install setuptools",
       "pip -q install memory_profiler",
       "pip -q install ipykernel",
+      "pip -q install numba",
       "pip -q install phyloRNN==0.44",
       "python -m ipykernel install --user --name=devbox_kernel --display-name 'phyloRNN' > /dev/null 2>&1"
     ],

@@ -70,6 +70,26 @@ def frame_as_categorical(frame, include_categories=None):
     return unified_categorical
 
 
+def generate_random_alignment(num_sequences=5, seq_length=30, categorical=True):
+    # Define nucleotide states
+    nucleotides = ['A', 'C', 'G', 'T']
+
+    # Generate a dictionary of random sequences
+    alignment_data = {
+        f"Seq{i + 1}": np.random.choice(nucleotides, seq_length).tolist()
+        for i in range(num_sequences)
+    }
+
+    # Create DataFrame
+    frame = pd.DataFrame(alignment_data).transpose()
+
+    if categorical:
+        # Convert to categorical data type
+        for col in frame.columns:
+            frame[col] = pd.Categorical(frame[col], categories=nucleotides)
+
+    return frame
+
 def df_from_charmatrix(charmatrix, categorical=True):
     """
     Convert a DendroPy CharacterMatrix to a pandas DataFrame.

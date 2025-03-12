@@ -2,3 +2,4 @@ Fancy - fix - todo
     - GPU accelration seems to be turn off (see message when init shell)
     - start server host with nohup redirection, echo url
     - test if encapsulation work
+    - make requirements in toml automatic

@@ -184,6 +184,7 @@ class simulator():
                  n_eigen_features = 3,
                  min_rate = 0,  #
                  freq_uncorrelated_sites = 0.5,
+                 freq_seqgen_codon=0,
                  freq_mixed_models = 0.5,
                  p_heterogeneity_model = None, # # ["Gamma", "Bimodal", "GBM", "Spike-and-slab", "Codon"]
                  store_mixed_model_info = False,
@@ -200,9 +201,11 @@ class simulator():
                  min_avg_br_length=0.0002,
                  max_avg_br_length=0.2,
                  ali_schema="phylip",
-                 format_output='sqlite', # 'sqlite' , 'npz, or 'both'
+                 format_output='sqlite', # 'sqlite' , 'npz, or 'both',
+                 fake=False,
                  ):
         self.DEBUG = DEBUG
+        self.fake = fake
         self.format_output=format_output
         self.verbose = verbose
         self.base_seed = base_seed
@@ -216,6 +219,7 @@ class simulator():
         self.min_rate = min_rate
         self.freq_uncorrelated_sites = freq_uncorrelated_sites
         self.freq_mixed_models = freq_mixed_models
+        self.freq_seqgen_codon = freq_seqgen_codon
         self.p_heterogeneity_model = p_heterogeneity_model
         self.store_mixed_model_info = store_mixed_model_info
         self.tree_builder = tree_builder
@@ -252,20 +256,28 @@ class simulator():
         labels_tl = []
         info = []
         subs_models = np.array(['JC', 'HKY', 'GTR'])
-        for sim_i in range(n_sims):
-            if rs.random() < self.freq_uncorrelated_sites:
+
+        def _generate_one(sim_i):
+
+            rnd_r = rs.random(3)
+
+            if rnd_r[0] < self.freq_seqgen_codon:
+                rate_m = "seqgen_codon_model"
+                blocks = 1
+                sites_indices = np.arange(blocks)
+            elif rnd_r[1] < self.freq_uncorrelated_sites:
                 rate_m = "uncorrelated"
                 blocks = self.n_sites
                 sites_indices = np.arange(blocks)
             else:
-                if np.random.random() < self.freq_mixed_models:
+                if rnd_r[2] < self.freq_mixed_models:
                     rate_m = "mixed_model"
-                    blocks = 2 # np.min([np.random.geometric(p=0.1), n_sites])  # mean = 10
+                    blocks = 2  # np.min([np.random.geometric(p=0.1), n_sites])  # mean = 10
                     sites_indices = np.sort(np.random.randint(0, blocks, self.n_sites))
                 else:
                     # autocorrelated rates
                     rate_m = "autocorrelated"
-                    blocks = np.min([rs.geometric(p=0.01), self.n_sites]) # mean = 100
+                    blocks = np.min([rs.geometric(p=0.01), self.n_sites])  # mean = 100
                     sites_indices = np.sort(rs.integers(0, blocks, self.n_sites))
 
             # 1. Simulate a tree and get the eigenvectors
@@ -276,7 +288,10 @@ class simulator():
             else:
                 if init_seed == self.base_seed and self.verbose:
                     print_update("Running simulation %s of %s " % (sim_i + 1, n_sims))
-            t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
+            if not self.fake:
+                t = simulateTree(self.n_taxa, mean_br_length)  # args are: ntips, mean branch lengths
+            else:
+                t = simulateTree(20, mean_br_length)  # args are: ntips, mean branch lengths
             # x = pn.pca(t)  # x is a dict with:
             # "eigenval"-> eigenvalues; "eigenvect"-> eigenvectors; "species"-> order of labels
 
@@ -287,7 +302,10 @@ class simulator():
             # 3. Set the model parameters (ie frequency and substitution rates)
             # scale is a vector holding the rates per site -> scaling factor to increase/decrease branch lengths
             if rate_m == "mixed_model":
-                sites_indices = np.arange(self.n_sites)
+                if not self.fake:
+                    sites_indices = np.arange(self.n_sites)
+                else:
+                    sites_indices = np.arange(20)
                 scale = []
                 rate_het_model = []
                 het_r = []
@@ -328,28 +346,48 @@ class simulator():
             # simulate the data
             if self.verbose:
                 print_update("simulating tree...done\nsimulating data...")
-            aln = simulateDNA(t,
-                              sites_per_scale[0],
-                              scale=scale[0],
-                              subs_model=subs_model_array[0],
-                              freq=freq,
-                              rates = rates,
-                              ti_tv = ti_tv,
-                              seqgen_path=self.seqgen_path)
-            for i in range(1, len(sites_per_scale)):
-                d = simulateDNA(t, sites_per_scale[i],
-                                scale=scale[i],
-                                subs_model=subs_model_array[i],
-                                freq=freq,
-                                rates=rates,
-                                ti_tv=ti_tv,
-                                seqgen_path=self.seqgen_path)
-                aln.char_matrices[0].extend_matrix(d.char_matrices[0])
+            if rate_m == "seqgen_codon_model":
+                codon_r1 = np.exp(rs.normal(0, 0.1))  # rate second position
+                codon_r0 = codon_r1 * rs.uniform(1, 5)
+                codon_r2 = codon_r1 * rs.uniform(5, 15)
+
+                aln = simulateDNA(t,
+                                  sites_per_scale[0],
+                                  scale=scale[0],
+                                  subs_model=subs_model_array[0],
+                                  freq=freq,
+                                  rates=rates,
+                                  ti_tv=ti_tv,
+                                  codon_pos_rates=(str(codon_r0), str(codon_r1), str(codon_r2)),
+                                  seqgen_path=self.seqgen_path)
+            else:
+                aln = simulateDNA(t,
+                                  sites_per_scale[0],
+                                  scale=scale[0],
+                                  subs_model=subs_model_array[0],
+                                  freq=freq,
+                                  rates=rates,
+                                  ti_tv=ti_tv,
+                                  seqgen_path=self.seqgen_path)
+                for i in range(1, len(sites_per_scale)):
+                    d = simulateDNA(t, sites_per_scale[i],
+                                    scale=scale[i],
+                                    subs_model=subs_model_array[i],
+                                    freq=freq,
+                                    rates=rates,
+                                    ti_tv=ti_tv,
+                                    seqgen_path=self.seqgen_path)
+                    aln.char_matrices[0].extend_matrix(d.char_matrices[0])
 
             if self.verbose:
                 print_update("simulating data...done\nextracting features...")
-            # convert to pandas dataframe
-            ali = df_from_charmatrix(aln.char_matrices[0], categorical=False)
+
+
+           # convert to pandas dataframe
+            if not self.fake:
+                ali = df_from_charmatrix(aln.char_matrices[0], categorical=False)
+            else:
+                ali = generate_random_alignment(self.n_taxa, self.n_sites)
 
             # one hot encoding
             l = [
@@ -370,18 +408,8 @@ class simulator():
             onehot_features = onehot_rs_2.reshape(self.n_sites, self.n_taxa * len(l))
 
             # get tree eigenvectors
-            eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"] # shape = (n_taxa, n_taxa)
-            eigenvec_features = eigenvec[:,range(self.n_eigen_features)].flatten()
-
-            if self.verbose:
-                print_update("extracting features...done\n")
-
-            features_ali.append(onehot_features)
-            features_tree.append(eigenvec_features)
-            labels_rates.append(scale_labels)
-            labels_tl.append(t.length())
-            if not self.subs_model_per_block:
-                labels_smodel.append(model_indx)
+            eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"]  # shape = (n_taxa, n_taxa)
+            eigenvec_features = eigenvec[:, range(self.n_eigen_features)].flatten()
 
             r_ml_est = None
             tl_ml_est = None
@@ -401,7 +429,11 @@ class simulator():
             else:
                 save_ali_tmp = ""
 
-            info.append({
+            if self.verbose:
+                print_update("extracting features...done\n")
+
+
+            info_dict = {
                 "n_blocks": blocks,
                 "mean_br_length": mean_br_length,
                 "rate_het_model": [rate_het_model, het_r, rate_m],
@@ -412,7 +444,30 @@ class simulator():
                 "r_ml_est": r_ml_est,
                 "tl_ml_est": tl_ml_est,
                 "ali_file": save_ali_tmp
-            })
+            }
+
+
+            return onehot_features,eigenvec_features,scale_labels,t.length(), model_indx,  info_dict
+
+        if self.fake:
+            onehot_features, eigenvec_features, scale_labels, t_length, model_indx, info_dict   = _generate_one(1)
+
+        for sim_i in range(n_sims):
+
+            if not self.fake:
+                onehot_features, eigenvec_features, scale_labels, t_length, model_indx, info_dict   = _generate_one(sim_i)
+
+            features_ali.append(onehot_features)
+            features_tree.append(eigenvec_features)
+            labels_rates.append(scale_labels)
+            labels_tl.append(t_length)
+
+            if not self.subs_model_per_block:
+                labels_smodel.append(model_indx)
+
+
+            info.append(info_dict)
+
 
         return [features_ali, features_tree, labels_rates, labels_smodel, labels_tl, info]
 
