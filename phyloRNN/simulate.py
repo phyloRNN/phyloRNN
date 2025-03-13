@@ -350,49 +350,50 @@ class simulator():
                 rates = list(rs.dirichlet([dir_shape_rate] * 6))
                 ti_tv = rs.uniform(2, 12)
 
-            # simulate the data
-            if self.verbose:
-                print_update("simulating tree...done\nsimulating data...")
-            if rate_m == "seqgen_codon_model":
-                codon_r1 = np.exp(rs.normal(0, 0.1))  # rate second position
-                codon_r0 = codon_r1 * rs.uniform(1, 5)
-                codon_r2 = codon_r1 * rs.uniform(5, 15)
-
-                aln = simulateDNA(t,
-                                  sites_per_scale[0],
-                                  scale=scale[0],
-                                  subs_model=subs_model_array[0],
-                                  freq=freq,
-                                  rates=rates,
-                                  ti_tv=ti_tv,
-                                  codon_pos_rates=(str(codon_r0), str(codon_r1), str(codon_r2)),
-                                  seqgen_path=self.seqgen_path)
-            else:
-                aln = simulateDNA(t,
-                                  sites_per_scale[0],
-                                  scale=scale[0],
-                                  subs_model=subs_model_array[0],
-                                  freq=freq,
-                                  rates=rates,
-                                  ti_tv=ti_tv,
-                                  seqgen_path=self.seqgen_path)
-                for i in range(1, len(sites_per_scale)):
-                    d = simulateDNA(t, sites_per_scale[i],
-                                    scale=scale[i],
-                                    subs_model=subs_model_array[i],
-                                    freq=freq,
-                                    rates=rates,
-                                    ti_tv=ti_tv,
-                                    seqgen_path=self.seqgen_path)
-                    aln.char_matrices[0].extend_matrix(d.char_matrices[0])
-
-            if self.verbose:
-                print_update("simulating data...done\nextracting features...")
-
-
-           # convert to pandas dataframe
             if not self.fake:
+
+                # simulate the data
+                if self.verbose:
+                    print_update("simulating tree...done\nsimulating data...")
+                if rate_m == "seqgen_codon_model":
+                    codon_r1 = np.exp(rs.normal(0, 0.1))  # rate second position
+                    codon_r0 = codon_r1 * rs.uniform(1, 5)
+                    codon_r2 = codon_r1 * rs.uniform(5, 15)
+
+                    aln = simulateDNA(t,
+                                      sites_per_scale[0],
+                                      scale=scale[0],
+                                      subs_model=subs_model_array[0],
+                                      freq=freq,
+                                      rates=rates,
+                                      ti_tv=ti_tv,
+                                      codon_pos_rates=(str(codon_r0), str(codon_r1), str(codon_r2)),
+                                      seqgen_path=self.seqgen_path)
+                else:
+                    aln = simulateDNA(t,
+                                      sites_per_scale[0],
+                                      scale=scale[0],
+                                      subs_model=subs_model_array[0],
+                                      freq=freq,
+                                      rates=rates,
+                                      ti_tv=ti_tv,
+                                      seqgen_path=self.seqgen_path)
+                    for i in range(1, len(sites_per_scale)):
+                        d = simulateDNA(t, sites_per_scale[i],
+                                        scale=scale[i],
+                                        subs_model=subs_model_array[i],
+                                        freq=freq,
+                                        rates=rates,
+                                        ti_tv=ti_tv,
+                                        seqgen_path=self.seqgen_path)
+                        aln.char_matrices[0].extend_matrix(d.char_matrices[0])
+
+                if self.verbose:
+                    print_update("simulating data...done\nextracting features...")
+
                 ali = df_from_charmatrix(aln.char_matrices[0], categorical=False)
+
+
             else:
                 ali = generate_random_alignment(self.n_taxa, self.n_sites)
 
@@ -415,7 +416,10 @@ class simulator():
             onehot_features = onehot_rs_2.reshape(self.n_sites, self.n_taxa * len(l))
 
             # get tree eigenvectors
-            eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"]  # shape = (n_taxa, n_taxa)
+            if self.fake:
+                eigenvec = np.random.randn( self.n_taxa,  self.n_taxa)
+            else:
+                eigenvec = pca_from_ali(aln, tree_builder=self.tree_builder)["eigenvect"]  # shape = (n_taxa, n_taxa)
             eigenvec_features = eigenvec[:, range(self.n_eigen_features)].flatten()
 
             r_ml_est = None
