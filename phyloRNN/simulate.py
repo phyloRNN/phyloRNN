@@ -10,7 +10,8 @@ import zlib
 import multiprocessing
 from datetime import datetime
 import json
-
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
 
 # Function to convert numpy data types to native Python data types
 def convert_numpy_types(obj):
@@ -118,10 +119,13 @@ def simulate_parallel(sim_obj,
 
                 cursor = conn.cursor()
 
+
                 # Apply performance optimizations
                 cursor.execute("PRAGMA journal_mode=WAL;")  # Enables concurrent reads/writes
                 cursor.execute("PRAGMA synchronous=OFF;")  # Speeds up inserts
                 cursor.execute("PRAGMA cache_size=-64000;")  # Use a larger cache
+                cursor.execute("PRAGMA journal_mode = MEMORY;")  # Reduce disk I/O
+                cursor.execute("PRAGMA temp_store = MEMORY;")  # Use RAM for temporary storage
 
                 cursor.execute(create_table)
                 cursor.execute(create_compression)
@@ -144,7 +148,10 @@ def simulate_parallel(sim_obj,
                 cursor.executemany(insert_compression,
                                    [(name, str(val['dtype']), str(val['shape'])) for name, val in compression.items()])
 
+                print('before data compression')
+
                 # **Bulk compress data before insertion** (Avoids repeated function calls)
+                '''
                 compressed_data = [
                     (
                         zlib.compress(features_ali[i].tobytes()),
@@ -156,9 +163,34 @@ def simulate_parallel(sim_obj,
                     )
                     for i in range(len(features_ali))
                 ]
+                '''
+
+
+                def compress_entry(i):
+                    return (
+                        zlib.compress(features_ali[i].tobytes(order='C'), level=1),
+                        zlib.compress(features_tree[i].tobytes(order='C'), level=1),
+                        zlib.compress(labels_rates[i].tobytes(order='C'), level=1),
+                        zlib.compress(labels_smodel[i].tobytes(order='C'), level=1),
+                        zlib.compress(labels_tl[i].tobytes(order='C'), level=1),
+                        json.dumps(info[i], default=convert_numpy_types),
+                    )
+
+                num_cores = 40  # Adjust based on your system
+                total_tasks = len(features_ali)
+
+                with ThreadPoolExecutor(max_workers=num_cores) as executor:
+                    compressed_data = list(
+                        tqdm(executor.map(compress_entry, range(total_tasks)), total=total_tasks, desc="Compressing"))
+
+                #compressed_data = list(map(compress_entry, range(len(features_ali))))
+
+                print('after data compression')
 
                 # **Batch insert using `executemany`**
                 cursor.executemany(insert_simulation, compressed_data)
+
+                print('before data insertion')
 
                 conn.commit()
 
