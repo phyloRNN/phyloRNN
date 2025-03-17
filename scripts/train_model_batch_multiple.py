@@ -42,6 +42,7 @@ if __name__ == '__main__':
         end = time.process_time()
         time_point.append(end-start)
 
+        write_log('Model trained in {} Sec'.format(end-start))
         print('Model trained in {} Sec'.format(end-start))
 
         # Free memory after training
