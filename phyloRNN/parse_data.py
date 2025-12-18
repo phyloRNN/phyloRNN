@@ -5,6 +5,7 @@ from .rate_estimator import *
 from .sequence_simulator import pca_from_ali
 from .utilities import *
 import tensorflow as tf
+import numpy as np
 
 
 def generate_features(wd="data", n_eigen=3, output=""):
@@ -348,6 +349,45 @@ def parse_large_alignment_file(ali_file,
 
 
 
+
+def load_phylornn_npz(sim_file=None,
+                      sim=None,
+                      log_rates=True,
+                      log_tree_len=True,
+                      output_list=None,
+                      include_tree_features=True):
+    if sim is None:
+        sim = dict(np.load(sim_file, allow_pickle=True))
+    if log_rates and sim['labels_rates'] is not None:
+        sim['labels_rates'] = np.log10(sim['labels_rates'])
+    if log_tree_len:
+        def f(x):
+            return np.log10(x)
+    else:
+        def f(x):
+            return x
+
+    train_dataset = tf.data.Dataset.from_tensor_slices(
+        (sim['features_ali'], sim['labels_rates'], sim['labels_tl'])).batch(5)
+
+    return sim, train_dataset
+
+
+
+
+
+def parse_alignment_file_gaps3D(ali_file,
+                         schema="fasta"
+                         ):
+    # read fasta file
+    dna = dendropy.DnaCharacterMatrix.get(file=open(ali_file), schema=schema)
+
+    # convert to pandas dataframe
+    ali = df_from_charmatrix(dna, categorical=False)
+    # one hot encoding
+    l = ["A", "C", "G", "T", "-"  ]
+    ali_3d = np.array([np.array(ali == i).astype(int) for i in l])
+    return ali_3d
 
 
 
