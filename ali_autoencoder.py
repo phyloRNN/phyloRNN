@@ -7,10 +7,14 @@ import phyloRNN as pn
 parse_file = pn.parse_alignment_file_gaps3D
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
+import pandas as pd
 import umap
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 
+EPOCHS = 3
+N_ALI_FILES = 100
+W_DIR = "/Users/dsilvestro/Desktop/ali"
 
 class YInvariantAutoencoder(nn.Module):
     def __init__(self, latent_dim=32):
@@ -56,7 +60,6 @@ class YInvariantAutoencoder(nn.Module):
         return x_recon, latent
 
 
-
 class MyBinaryFileDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
@@ -75,8 +78,6 @@ class MyBinaryFileDataset(Dataset):
         data_tensor = torch.from_numpy(data_np).float()
 
         return data_tensor
-
-
 
 
 def variable_collate_fn(batch):
@@ -98,42 +99,6 @@ def variable_collate_fn(batch):
 
     return torch.stack(padded_batch)
 
-
-
-# List of your file paths
-files = glob.glob("/Users/dsilvestro/Desktop/fasta_cds/*")[:200]
-dataset = MyBinaryFileDataset(files)
-train_loader = DataLoader(dataset, batch_size=32, collate_fn=variable_collate_fn)
-
-# Initialize model
-model = YInvariantAutoencoder(latent_dim=32)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-criterion = torch.nn.BCELoss()
-
-for epoch in range(3):
-    batch_n = 1
-    for batch in train_loader:
-        # Move batch to GPU if available
-        # batch = batch.to('cuda')
-
-        optimizer.zero_grad()
-
-        # Forward pass
-        reconstruction, embedding = model(batch)
-
-        # Loss: Compare reconstructed binary grid to original input
-        loss = criterion(reconstruction, batch)
-
-        loss.backward()
-        optimizer.step()
-        pn.print_update(f"Epoch {epoch + 1}, batch {batch_n}, Avg Loss: {loss:.4f}")
-        batch_n += 1
-    print(f"\nEpoch {epoch + 1}, Avg Loss: {loss:.4f}")
-
-
-
-
-# CHECK Y-invariance
 
 def check_invariance(model, file_path):
     model.eval()
@@ -158,69 +123,7 @@ def check_invariance(model, file_path):
         print(f"Cosine Similarity: {cos_sim.item():.6f} (Should be near 1.0)")
         print(f"Euclidean Distance: {distance.item():.6f} (Should be near 0.0)")
 
-# check
-check_invariance(model, files[0])
 
-
-# PREDICT
-model.eval()
-with torch.no_grad():
-    ali_emb = []
-    for i in range(len(files)):
-        # 1. Load original data
-        data_np = parse_file(files[i])  # (5, x, y)
-        dat = torch.from_numpy(data_np).float().unsqueeze(0)  # Add batch dim
-
-        # 3. Get embeddings
-        ali_emb.append(np.array(model.encode(dat)))
-        print(f"File: {os.path.basename(files[0])}")
-
-
-pred_loader = DataLoader(dataset, batch_size=100, collate_fn=variable_collate_fn)
-model.eval()
-with torch.no_grad():
-    ali_emb = []
-    for batch in pred_loader:
-        # 1. Load original data
-
-        # 3. Get embeddings
-        ali_emb.append(np.array(model.encode(batch)))
-        print(f"File: {os.path.basename(files[0])}")
-
-
-# 1. Extract all embeddings
-all_embeddings = []
-file_labels = [] # Optional: if you have categories for your files
-
-model.eval()
-with torch.no_grad():
-    for f_path in files[:200]:
-        data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
-        latent = model.encode(data)
-        all_embeddings.append(latent.squeeze().numpy())
-        # file_labels.append(get_label(f_path))
-        pn.print_update(f"File: {f_path}")
-
-# Convert to a 2D numpy array [num_samples, latent_dim]
-matrix = np.array(all_embeddings)
-
-# 2. Run UMAP
-reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
-matrix_scaled = StandardScaler().fit_transform(matrix)
-embedding_2d = reducer.fit_transform(matrix_scaled)
-
-
-# 3. Plot
-plt.figure(figsize=(10, 7))
-plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], alpha=0.7, cmap='viridis')
-plt.title("UMAP Projection of Y-Invariant Embeddings")
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.colorbar()
-plt.show()
-
-
-#
 def get_channel_densities(file_path):
     data = parse_file(file_path) # (5, x, y)
     # Calculate mean for each of the 5 channels
@@ -228,28 +131,167 @@ def get_channel_densities(file_path):
     densities = data.mean(axis=(1, 2))
     return densities
 
-# Collect densities for all files
-all_densities = []
-for f_path in files:
-    pn.print_update(f"File: {f_path}")
-    all_densities.append(get_channel_densities(f_path))
 
-density_matrix = np.array(all_densities) # Shape: (num_files, 5)
 
-fig, axes = plt.subplots(1, 5, figsize=(25, 5))
-channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
+if __name__=="__main__":
+    # List of your file paths
+    files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
+    dataset = MyBinaryFileDataset(files)
+    train_loader = DataLoader(dataset, batch_size=64, collate_fn=variable_collate_fn)
 
-for i in range(5):
-    scatter = axes[i].scatter(
-        embedding_2d[:, 0],
-        embedding_2d[:, 1],
-        c=density_matrix[:, i], # Color by density of current channel
-        cmap='viridis',
-        s=10,
-        alpha=0.6
-    )
-    axes[i].set_title(f"Density: {channel_names[i]}")
-    plt.colorbar(scatter, ax=axes[i])
+    # Initialize model
+    model = YInvariantAutoencoder(latent_dim=32)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    criterion = torch.nn.BCELoss()
 
-plt.tight_layout()
-plt.show()
+    for epoch in range(EPOCHS):
+        batch_n = 1
+        for batch in train_loader:
+            # Move batch to GPU if available
+            # batch = batch.to('cuda')
+
+            optimizer.zero_grad()
+
+            # Forward pass
+            reconstruction, embedding = model(batch)
+
+            # Loss: Compare reconstructed binary grid to original input
+            loss = criterion(reconstruction, batch)
+            loss.backward()
+            optimizer.step()
+            pn.print_update(f"Epoch {epoch + 1}, batch {batch_n}, Avg Loss: {loss:.4f}")
+            batch_n += 1
+        print(f"\nEpoch {epoch + 1}, Avg Loss: {loss:.4f}")
+
+
+
+
+    # CHECK Y-invariance
+
+    # # check
+    # check_invariance(model, files[0])
+    #
+    #
+    # # PREDICT
+    # model.eval()
+    # with torch.no_grad():
+    #     ali_emb = []
+    #     for i in range(len(files)):
+    #         # 1. Load original data
+    #         data_np = parse_file(files[i])  # (5, x, y)
+    #         dat = torch.from_numpy(data_np).float().unsqueeze(0)  # Add batch dim
+    #
+    #         # 3. Get embeddings
+    #         ali_emb.append(np.array(model.encode(dat)))
+    #         print(f"File: {os.path.basename(files[0])}")
+    #
+    #
+    # pred_loader = DataLoader(dataset, batch_size=100, collate_fn=variable_collate_fn)
+    # model.eval()
+    # with torch.no_grad():
+    #     ali_emb = []
+    #     for batch in pred_loader:
+    #         # 1. Load original data
+    #
+    #         # 3. Get embeddings
+    #         ali_emb.append(np.array(model.encode(batch)))
+    #         print(f"File: {os.path.basename(files[0])}")
+
+
+    # 1. Extract all embeddings
+    all_embeddings = []
+    file_labels = [] # Optional: if you have categories for your files
+
+    model.eval()
+    with torch.no_grad():
+        for f_path in files[:N_ALI_FILES]:
+            data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
+            latent = model.encode(data)
+            all_embeddings.append(latent.squeeze().numpy())
+            # file_labels.append(get_label(f_path))
+            pn.print_update(f"File: {f_path}")
+
+    # Convert to a 2D numpy array [num_samples, latent_dim]
+    matrix = np.array(all_embeddings)
+
+    # 2. Run UMAP
+    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
+    matrix_scaled = StandardScaler().fit_transform(matrix)
+    embedding_2d = reducer.fit_transform(matrix_scaled)
+
+
+    # 3. Plot
+    # plt.figure(figsize=(10, 7))
+    # plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], alpha=0.7, cmap='viridis')
+    # plt.title("UMAP Projection of Y-Invariant Embeddings")
+    # plt.xlabel("UMAP 1")
+    # plt.ylabel("UMAP 2")
+    # plt.colorbar()
+    # plt.show()
+
+
+    #
+
+    # Collect densities for all files
+    all_densities = []
+    for f_path in files:
+        pn.print_update(f"File: {f_path}")
+        all_densities.append(get_channel_densities(f_path))
+
+    density_matrix = np.array(all_densities) # Shape: (num_files, 5)
+
+    # fig, axes = plt.subplots(1, 5, figsize=(25, 5))
+    # channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
+    #
+    # for i in range(5):
+    #     scatter = axes[i].scatter(
+    #         embedding_2d[:, 0],
+    #         embedding_2d[:, 1],
+    #         c=density_matrix[:, i], # Color by density of current channel
+    #         cmap='viridis',
+    #         s=10,
+    #         alpha=0.6
+    #     )
+    #     axes[i].set_title(f"Density: {channel_names[i]}")
+    #     plt.colorbar(scatter, ax=axes[i])
+    #
+    # plt.tight_layout()
+    # plt.show()
+
+
+    # 1. Create a dictionary to hold our data
+    data_to_save = {
+        'file_name': [os.path.basename(f) for f in files],
+    }
+
+    # 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
+    for i in range(matrix.shape[1]):
+        data_to_save[f'dim_{i}'] = matrix[:, i]
+
+    # 3. Add our density metadata
+    for i in range(5):
+        data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
+
+    # 4. Create DataFrame and save
+    df = pd.DataFrame(data_to_save)
+    df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
+    print("Saved embeddings to embeddings_results.csv")
+
+    # Define the path
+    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
+
+    # It's best to save just the encoder if that's all you'll use for inference
+    torch.save(model.state_dict(), MODEL_PATH)
+    print(f"Model weights saved to {MODEL_PATH}")
+
+    # # 1. Re-initialize the model architecture
+    # loaded_model = YInvariantAutoencoder(latent_dim=32)
+    #
+    # # 2. Load the weights
+    # loaded_model.load_state_dict(torch.load(MODEL_PATH))
+    #
+    # # 3. Set to evaluation mode
+    # loaded_model.eval()
+    # print("Model loaded successfully!")
+
+
