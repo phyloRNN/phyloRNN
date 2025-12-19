@@ -9,12 +9,23 @@ from torch.nn.utils.rnn import pad_sequence
 import numpy as np
 import pandas as pd
 import umap
+from torchinfo import summary
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 
-EPOCHS = 3
-N_ALI_FILES = 100
-W_DIR = "/Users/dsilvestro/Desktop/ali"
+WS = False
+
+if WS:
+    EPOCHS = 30
+    N_ALI_FILES = 10000
+    W_DIR = "/local1/dsilvestro/phyloRNN/aliemb"
+else:
+    EPOCHS = 3
+    N_ALI_FILES = 100
+    W_DIR = "/Users/dsilvestro/Desktop/ali"
+
+LATENT_DIM = 128
+BATCH_SIZE = 64
 
 class YInvariantAutoencoder(nn.Module):
     def __init__(self, latent_dim=32):
@@ -133,23 +144,46 @@ def get_channel_densities(file_path):
 
 
 
+
+# # 1. Initialize your model
+# model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
+#
+# # 2. Print the summary
+# # (Batch_size, Channels, Height, Width)
+# summary(model, input_size=(100, 5, 32, 64))
+#
+
+
+
 if __name__=="__main__":
     # List of your file paths
     files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
     dataset = MyBinaryFileDataset(files)
-    train_loader = DataLoader(dataset, batch_size=64, collate_fn=variable_collate_fn)
+    train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
     # Initialize model
-    model = YInvariantAutoencoder(latent_dim=32)
+    model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
+    summary(model, input_size=(100, 5, LATENT_DIM, BATCH_SIZE))
+    # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
+    # Check if CUDA (NVIDIA GPU support) is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+    # 2. Move model to GPU
+    model.to(device)
+
+    # 3. Initialize optimizer (after moving the model!)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+
     criterion = torch.nn.BCELoss()
 
     for epoch in range(EPOCHS):
         batch_n = 1
         for batch in train_loader:
             # Move batch to GPU if available
-            # batch = batch.to('cuda')
-
+            batch = batch.to(device)
             optimizer.zero_grad()
 
             # Forward pass
@@ -204,7 +238,7 @@ if __name__=="__main__":
 
     model.eval()
     with torch.no_grad():
-        for f_path in files[:N_ALI_FILES]:
+        for f_path in files:
             data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
             latent = model.encode(data)
             all_embeddings.append(latent.squeeze().numpy())
@@ -272,6 +306,10 @@ if __name__=="__main__":
     for i in range(5):
         data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
+    # 3.1 Add UMAP embedding
+    data_to_save[f'umap_0'] = embedding_2d[:, 0]
+    data_to_save[f'umap_1'] = embedding_2d[:, 1]
+
     # 4. Create DataFrame and save
     df = pd.DataFrame(data_to_save)
     df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
@@ -293,5 +331,57 @@ if __name__=="__main__":
     # # 3. Set to evaluation mode
     # loaded_model.eval()
     # print("Model loaded successfully!")
+
+    # TEST SET
+    files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
+    dataset = MyBinaryFileDataset(files)
+    train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
+
+    # 1. Extract all embeddings
+    all_embeddings = []
+    file_labels = [] # Optional: if you have categories for your files
+
+    model.eval()
+    with torch.no_grad():
+        for f_path in files:
+            data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
+            latent = model.encode(data)
+            all_embeddings.append(latent.squeeze().numpy())
+            # file_labels.append(get_label(f_path))
+            pn.print_update(f"File: {f_path}")
+
+    # Convert to a 2D numpy array [num_samples, latent_dim]
+    matrix = np.array(all_embeddings)
+
+    # 2. Run UMAP
+    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
+    matrix_scaled = StandardScaler().fit_transform(matrix)
+    embedding_2d = reducer.fit_transform(matrix_scaled)
+
+    # 1. Create a dictionary to hold our data
+    data_to_save = {
+        'file_name': [os.path.basename(f) for f in files],
+    }
+
+    # 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
+    for i in range(matrix.shape[1]):
+        data_to_save[f'dim_{i}'] = matrix[:, i]
+
+    # 3. Add our density metadata
+    for i in range(5):
+        data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
+
+    # 3.1 Add UMAP embedding
+    data_to_save[f'umap_0'] = embedding_2d[:, 0]
+    data_to_save[f'umap_1'] = embedding_2d[:, 1]
+
+    # 4. Create DataFrame and save
+    df = pd.DataFrame(data_to_save)
+    df.to_csv(os.path.join(W_DIR, 'embeddings_results_test.csv'), index=False)
+    print("Saved embeddings to embeddings_results_test.csv")
+
+
+
+
 
 
