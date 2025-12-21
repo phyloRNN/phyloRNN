@@ -12,6 +12,7 @@ import umap
 from torchinfo import summary
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
+from torch.utils.data import random_split
 
 WS = True
 TRAIN = False
@@ -174,7 +175,19 @@ if __name__=="__main__":
         # List of your file paths
         files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
         dataset = MyBinaryFileDataset(files)
-        train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
+        # train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
+
+        # validation split
+        train_size = int(0.9 * len(dataset))
+        val_size = len(dataset) - train_size
+        train_subset, val_subset = random_split(dataset, [train_size, val_size])
+
+        # 2. Create separate loaders
+        # Use the same collate_fn you used before if sizes are variable
+        train_loader = DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True)
+        val_loader = DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False)
+
+
 
         # Initialize model
         model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
@@ -194,40 +207,65 @@ if __name__=="__main__":
 
         criterion = torch.nn.BCELoss()
 
+        # Early Stopping Configuration
+        patience = 5  # How many epochs to wait for improvement
+        counter = 0  # To track how many epochs without improvement
+        best_val_loss = float('inf')
+        early_stop = False
+
         for epoch in range(EPOCHS):
-            batch_n = 1
-            running_loss = 0.0
-            for batch in train_loader:
-                # Move batch to GPU if available
-                #print(f"Processing batch of size: {batch.shape}")
+            # --- TRAINING PHASE ---
+            model.train()
+            running_train_loss = 0.0
+
+            for batch_n, batch in enumerate(train_loader, 1):
                 batch = batch.to(device)
                 optimizer.zero_grad()
 
-                # Forward pass
-                reconstruction, embedding = model(batch)
-
-                # Loss: Compare reconstructed binary grid to original input
+                reconstruction, _ = model(batch) # returns: reconstruction, embedding
                 loss = criterion(reconstruction, batch)
                 loss.backward()
                 optimizer.step()
-                #pn.print_update(f"Epoch {epoch + 1}, batch {batch_n}, Avg Loss: {loss:.4f}")
 
-                # 2. Use .item() HERE for printing/logging
-                # This detaches the number from the GPU memory/graph
-                current_loss_value = loss.item()
-                running_loss += loss.item()
+                running_train_loss += loss.item()
+                pn.print_update(f"Epoch {epoch + 1} [Train], Batch {batch_n}, Loss: {loss.item():.4f}")
 
-                pn.print_update(f"Epoch {epoch + 1}, batch {batch_n}, Avg Loss: {current_loss_value:.4f}")
+            avg_train_loss = running_train_loss / len(train_loader)
 
-                batch_n += 1
+            # --- VALIDATION PHASE ---
+            model.eval()
+            running_val_loss = 0.0
+            with torch.no_grad():  # Disable gradient calculation for speed/memory
+                for batch in val_loader:
+                    batch = batch.to(device)
+                    reconstruction, _ = model(batch)
+                    v_loss = criterion(reconstruction, batch)
+                    running_val_loss += v_loss.item()
 
-            epoch_loss = running_loss / batch_n
-            print(f"\nEpoch {epoch + 1} Complete | Average Loss: {epoch_loss:.4f}")
-            #print(f"\nEpoch {epoch + 1}, Avg Loss: {loss:.4f}")
+            avg_val_loss = running_val_loss / len(val_loader)
 
-            # It's best to save just the encoder if that's all you'll use for inference
-            torch.save(model.state_dict(), MODEL_PATH)
-            print(f"Model weights saved to {MODEL_PATH}")
+            print(f"\nEpoch {epoch + 1} Summary | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+
+            # --- EARLY STOPPING LOGIC ---
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                counter = 0  # Reset counter
+                # Save the best model
+                torch.save(model.state_dict(), "best_model.pth")
+                print("★ New best model saved!")
+            else:
+                counter += 1
+                print(f"No improvement. EarlyStopping counter: {counter}/{patience}")
+                if counter >= patience:
+                    print("Early stopping triggered. Training finished.")
+                    break
+
+        # Load the best weights back before you start using the model
+        model.load_state_dict(torch.load("best_model.pth"))
+
+        # It's best to save just the encoder if that's all you'll use for inference
+        torch.save(model.state_dict(), MODEL_PATH)
+        print(f"Model weights saved to {MODEL_PATH}")
 
     else:
         # 1. Re-initialize the model architecture
