@@ -184,8 +184,8 @@ if __name__=="__main__":
 
         # 2. Create separate loaders
         # Use the same collate_fn you used before if sizes are variable
-        train_loader = DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True)
-        val_loader = DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False)
+        train_loader = DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=variable_collate_fn)
+        val_loader = DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=variable_collate_fn)
 
 
 
