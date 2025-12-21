@@ -164,6 +164,12 @@ def get_channel_densities(file_path):
 
 
 if __name__=="__main__":
+
+    # Define the path
+    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
+
+
+
     if TRAIN:
         # List of your file paths
         files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
@@ -219,8 +225,20 @@ if __name__=="__main__":
             print(f"\nEpoch {epoch + 1} Complete | Average Loss: {epoch_loss:.4f}")
             #print(f"\nEpoch {epoch + 1}, Avg Loss: {loss:.4f}")
 
+            # It's best to save just the encoder if that's all you'll use for inference
+            torch.save(model.state_dict(), MODEL_PATH)
+            print(f"Model weights saved to {MODEL_PATH}")
 
+    else:
+        # 1. Re-initialize the model architecture
+        loaded_model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
 
+        # 2. Load the weights
+        loaded_model.load_state_dict(torch.load(MODEL_PATH))
+
+        # 3. Set to evaluation mode
+        loaded_model.eval()
+        print("Model loaded successfully!")
 
     # CHECK Y-invariance
 
@@ -336,23 +354,6 @@ if __name__=="__main__":
     df = pd.DataFrame(data_to_save)
     df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
     print("Saved embeddings to embeddings_results.csv")
-
-    # Define the path
-    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
-
-    # It's best to save just the encoder if that's all you'll use for inference
-    torch.save(model.state_dict(), MODEL_PATH)
-    print(f"Model weights saved to {MODEL_PATH}")
-
-    # # 1. Re-initialize the model architecture
-    # loaded_model = YInvariantAutoencoder(latent_dim=32)
-    #
-    # # 2. Load the weights
-    # loaded_model.load_state_dict(torch.load(MODEL_PATH))
-    #
-    # # 3. Set to evaluation mode
-    # loaded_model.eval()
-    # print("Model loaded successfully!")
 
     # TEST SET
     files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
