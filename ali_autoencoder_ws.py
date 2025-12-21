@@ -80,6 +80,71 @@ class YInvariantAutoencoder(nn.Module):
         return x_recon, latent
 
 
+class YInvariantAutoencoder128(nn.Module):
+
+    def __init__(self, latent_dim=128):
+        super(YInvariantAutoencoder128, self).__init__()
+
+        # --- ENCODER ---
+        # We increase the number of filters gradually
+        self.encoder_conv = nn.Sequential(
+            nn.Conv2d(5, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),  # Added for stability with more filters
+            nn.ReLU(),
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU()
+        )
+
+        # Collapse Y to 1 (Invariance) and X to 1 (Fixed shape)
+        self.adaptive_pool = nn.AdaptiveMaxPool2d((1, 1))
+
+        # Transition to Latent Space
+        self.fc_encode = nn.Sequential(
+            nn.Linear(128, 256),
+            nn.ReLU(),
+            nn.Linear(256, latent_dim)  # Final 128-dim embedding
+        )
+
+        # --- DECODER ---
+        self.fc_decode = nn.Sequential(
+            nn.Linear(latent_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128)
+        )
+
+        self.decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, 3, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 5, 3, padding=1),
+            nn.Sigmoid()
+        )
+
+    def encode(self, x):
+        x = self.encoder_conv(x)
+        x = self.adaptive_pool(x)
+        x = torch.flatten(x, 1)
+        return self.fc_encode(x)
+
+    def forward(self, x):
+        latent = self.encode(x)
+
+        # Decode
+        x_recon = self.fc_decode(latent).view(-1, 128, 1, 1)
+        # Match original spatial dimensions
+        x_recon = torch.nn.functional.interpolate(x_recon, size=(x.shape[2], x.shape[3]), mode='bilinear')
+        x_recon = self.decoder_conv(x_recon)
+
+        return x_recon, latent
+
+
 class MyBinaryFileDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
@@ -190,7 +255,7 @@ if __name__=="__main__":
 
 
         # Initialize model
-        model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
+        model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
         summary(model, input_size=(100, 5, LATENT_DIM, BATCH_SIZE))
         # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
@@ -269,7 +334,7 @@ if __name__=="__main__":
 
     else:
         # 1. Re-initialize the model architecture
-        loaded_model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
+        loaded_model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
 
         # 2. Load the weights
         loaded_model.load_state_dict(torch.load(MODEL_PATH))
