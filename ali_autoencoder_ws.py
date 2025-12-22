@@ -16,6 +16,7 @@ from torch.utils.data import random_split
 
 WS = True
 TRAIN = False
+predict_training_set = False
 
 if WS:
     EPOCHS = 30
@@ -377,94 +378,95 @@ if __name__=="__main__":
     #         print(f"File: {os.path.basename(files[0])}")
 
 
-    # 1. Extract all embeddings
-    all_embeddings = []
-    file_labels = [] # Optional: if you have categories for your files
+    if predict_training_set:
+        # 1. Extract all embeddings
+        all_embeddings = []
+        file_labels = [] # Optional: if you have categories for your files
 
-    with torch.no_grad():
+        with torch.no_grad():
+            for f_path in files:
+                # Load and prepare data
+                data_np = parse_file(f_path)
+                data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
+
+                # Run through model
+                latent = model.encode(data)
+
+                # Move result back to CPU for numpy/UMAP
+                all_embeddings.append(latent.squeeze().cpu().numpy())
+
+                pn.print_update(f"Processed: {os.path.basename(f_path)}")
+
+        # Convert list to final numpy matrix
+        matrix = np.array(all_embeddings)
+
+
+        # 2. Run UMAP
+        reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
+        matrix_scaled = StandardScaler().fit_transform(matrix)
+        embedding_2d = reducer.fit_transform(matrix_scaled)
+
+
+        # 3. Plot
+        # plt.figure(figsize=(10, 7))
+        # plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], alpha=0.7, cmap='viridis')
+        # plt.title("UMAP Projection of Y-Invariant Embeddings")
+        # plt.xlabel("UMAP 1")
+        # plt.ylabel("UMAP 2")
+        # plt.colorbar()
+        # plt.show()
+
+
+        #
+
+        # Collect densities for all files
+        all_densities = []
         for f_path in files:
-            # Load and prepare data
-            data_np = parse_file(f_path)
-            data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
+            pn.print_update(f"File: {f_path}")
+            all_densities.append(get_channel_densities(f_path))
 
-            # Run through model
-            latent = model.encode(data)
+        density_matrix = np.array(all_densities) # Shape: (num_files, 5)
 
-            # Move result back to CPU for numpy/UMAP
-            all_embeddings.append(latent.squeeze().cpu().numpy())
-
-            pn.print_update(f"Processed: {os.path.basename(f_path)}")
-
-    # Convert list to final numpy matrix
-    matrix = np.array(all_embeddings)
-
-
-    # 2. Run UMAP
-    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
-    matrix_scaled = StandardScaler().fit_transform(matrix)
-    embedding_2d = reducer.fit_transform(matrix_scaled)
-
-
-    # 3. Plot
-    # plt.figure(figsize=(10, 7))
-    # plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], alpha=0.7, cmap='viridis')
-    # plt.title("UMAP Projection of Y-Invariant Embeddings")
-    # plt.xlabel("UMAP 1")
-    # plt.ylabel("UMAP 2")
-    # plt.colorbar()
-    # plt.show()
+        # fig, axes = plt.subplots(1, 5, figsize=(25, 5))
+        # channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
+        #
+        # for i in range(5):
+        #     scatter = axes[i].scatter(
+        #         embedding_2d[:, 0],
+        #         embedding_2d[:, 1],
+        #         c=density_matrix[:, i], # Color by density of current channel
+        #         cmap='viridis',
+        #         s=10,
+        #         alpha=0.6
+        #     )
+        #     axes[i].set_title(f"Density: {channel_names[i]}")
+        #     plt.colorbar(scatter, ax=axes[i])
+        #
+        # plt.tight_layout()
+        # plt.show()
 
 
-    #
+        # 1. Create a dictionary to hold our data
+        data_to_save = {
+            'file_name': [os.path.basename(f) for f in files],
+        }
 
-    # Collect densities for all files
-    all_densities = []
-    for f_path in files:
-        pn.print_update(f"File: {f_path}")
-        all_densities.append(get_channel_densities(f_path))
+        # 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
+        for i in range(matrix.shape[1]):
+            data_to_save[f'dim_{i}'] = matrix[:, i]
 
-    density_matrix = np.array(all_densities) # Shape: (num_files, 5)
+        # 3. Add our density metadata
+        for i in range(5):
+            data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
-    # fig, axes = plt.subplots(1, 5, figsize=(25, 5))
-    # channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
-    #
-    # for i in range(5):
-    #     scatter = axes[i].scatter(
-    #         embedding_2d[:, 0],
-    #         embedding_2d[:, 1],
-    #         c=density_matrix[:, i], # Color by density of current channel
-    #         cmap='viridis',
-    #         s=10,
-    #         alpha=0.6
-    #     )
-    #     axes[i].set_title(f"Density: {channel_names[i]}")
-    #     plt.colorbar(scatter, ax=axes[i])
-    #
-    # plt.tight_layout()
-    # plt.show()
+        # 3.1 Add UMAP embedding
+        data_to_save[f'umap_0'] = embedding_2d[:, 0]
+        data_to_save[f'umap_1'] = embedding_2d[:, 1]
 
-
-    # 1. Create a dictionary to hold our data
-    data_to_save = {
-        'file_name': [os.path.basename(f) for f in files],
-    }
-
-    # 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
-    for i in range(matrix.shape[1]):
-        data_to_save[f'dim_{i}'] = matrix[:, i]
-
-    # 3. Add our density metadata
-    for i in range(5):
-        data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
-
-    # 3.1 Add UMAP embedding
-    data_to_save[f'umap_0'] = embedding_2d[:, 0]
-    data_to_save[f'umap_1'] = embedding_2d[:, 1]
-
-    # 4. Create DataFrame and save
-    df = pd.DataFrame(data_to_save)
-    df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
-    print("Saved embeddings to embeddings_results.csv")
+        # 4. Create DataFrame and save
+        df = pd.DataFrame(data_to_save)
+        df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
+        print("Saved embeddings to embeddings_results.csv")
 
     # TEST SET
     files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
@@ -478,6 +480,15 @@ if __name__=="__main__":
     model.eval()
     with torch.no_grad():
         for f_path in files:
+
+            data_np = parse_file(f_path)
+            data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
+            latent = model.encode(data)
+            all_embeddings.append(latent.squeeze().cpu().numpy())
+            pn.print_update(f"Processed: {os.path.basename(f_path)}")
+
+
+
             data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
             latent = model.encode(data)
             all_embeddings.append(latent.squeeze().numpy())
