@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import random_split
 
 WS = True
-TRAIN = True
+TRAIN = False
 
 if WS:
     EPOCHS = 30
@@ -383,7 +383,7 @@ if __name__=="__main__":
     with torch.no_grad():
         for f_path in files:
             data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
-            latent = model.encode(data.to(device))
+            latent = model.encode(data.to(device)).cpu()
             all_embeddings.append(latent.squeeze().numpy())
             # file_labels.append(get_label(f_path))
             pn.print_update(f"File: {f_path}")
