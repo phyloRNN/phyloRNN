@@ -146,6 +146,62 @@ class YInvariantAutoencoder128(nn.Module):
         return x_recon, latent
 
 
+class YInvariantAutoencoder128groupnorm(nn.Module):
+    def __init__(self, latent_dim=128):
+        super(YInvariantAutoencoder128groupnorm, self).__init__()
+
+        # --- ENCODER ---
+        self.encoder_conv = nn.Sequential(
+            nn.Conv2d(5, 32, kernel_size=3, padding=1),
+            nn.GroupNorm(4, 32),  # GroupNorm works perfectly with Batch Size 1
+            nn.LeakyReLU(0.2),  # Prevents "dead" neurons
+
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.GroupNorm(8, 64),
+            nn.LeakyReLU(0.2),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.GroupNorm(16, 128),
+            nn.LeakyReLU(0.2)
+        )
+
+        self.adaptive_pool = nn.AdaptiveMaxPool2d((1, 1))
+
+        self.fc_encode = nn.Sequential(
+            nn.Linear(128, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, latent_dim)
+        )
+
+        # --- DECODER ---
+        self.fc_decode = nn.Sequential(
+            nn.Linear(latent_dim, 256),
+            nn.LeakyReLU(0.2),
+            nn.Linear(256, 128)
+        )
+
+        self.decoder_conv = nn.Sequential(
+            nn.ConvTranspose2d(128, 64, 3, padding=1),
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(64, 32, 3, padding=1),
+            nn.LeakyReLU(0.2),
+            nn.ConvTranspose2d(32, 5, 3, padding=1),
+            nn.Sigmoid()
+        )
+
+    def encode(self, x):
+        x = self.encoder_conv(x)
+        x = self.adaptive_pool(x)
+        x = torch.flatten(x, 1)
+        return self.fc_encode(x)
+
+    def forward(self, x):
+        latent = self.encode(x)
+        x_recon = self.fc_decode(latent).view(-1, 128, 1, 1)
+        x_recon = torch.nn.functional.interpolate(x_recon, size=(x.shape[2], x.shape[3]), mode='bilinear')
+        x_recon = self.decoder_conv(x_recon)
+        return x_recon, latent
+
 class MyBinaryFileDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
@@ -260,7 +316,7 @@ if __name__=="__main__":
 
 
         # Initialize model
-        model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
+        model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
         summary(model, input_size=(100, 5, LATENT_DIM, BATCH_SIZE))
         # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
@@ -334,7 +390,7 @@ if __name__=="__main__":
 
     else:
         # 1. Re-initialize the model architecture
-        model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
+        model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
 
         # 2. Load the weights and move to GPU
         model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
@@ -527,6 +583,30 @@ if __name__=="__main__":
 
 
 
+f = "/Users/dsilvestro/Desktop/res128gpu/embeddings_results.csv"
+data = pd.read_csv(f)
+
+fig, axes = plt.subplots(1, 5, figsize=(25, 5))
+channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
+
+for i in range(5):
+    scatter = axes[i].scatter(
+        data['dim_3'],
+        data['dim_10'],
+        # data['umap_0'],
+        # data['umap_1'],
+        c=data[f'density_ch_{i}'], # Color by density of current channel
+        cmap='viridis',
+        s=10,
+        alpha=0.6
+    )
+    axes[i].set_title(f"Density: {channel_names[i]}")
+    plt.colorbar(scatter, ax=axes[i])
+    plt.xlabel("UMAP 1")
+    plt.ylabel("UMAP 2")
+
+plt.tight_layout()
+plt.show()
 
 
 
