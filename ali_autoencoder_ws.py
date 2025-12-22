@@ -334,13 +334,13 @@ if __name__=="__main__":
 
     else:
         # 1. Re-initialize the model architecture
-        loaded_model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
+        model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
 
         # 2. Load the weights
-        loaded_model.load_state_dict(torch.load(MODEL_PATH))
+        model.load_state_dict(torch.load(MODEL_PATH))
 
         # 3. Set to evaluation mode
-        loaded_model.eval()
+        model.eval()
         print("Model loaded successfully!")
 
     # CHECK Y-invariance
