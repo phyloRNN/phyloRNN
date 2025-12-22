@@ -487,14 +487,6 @@ if __name__=="__main__":
             all_embeddings.append(latent.squeeze().cpu().numpy())
             pn.print_update(f"Processed: {os.path.basename(f_path)}")
 
-
-
-            data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
-            latent = model.encode(data)
-            all_embeddings.append(latent.squeeze().numpy())
-            # file_labels.append(get_label(f_path))
-            pn.print_update(f"File: {f_path}")
-
     # Convert to a 2D numpy array [num_samples, latent_dim]
     matrix = np.array(all_embeddings)
 
