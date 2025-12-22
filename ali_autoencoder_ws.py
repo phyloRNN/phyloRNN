@@ -234,7 +234,11 @@ if __name__=="__main__":
     # Define the path
     MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
 
-
+    # Check if CUDA (NVIDIA GPU support) is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
     if TRAIN:
         # List of your file paths
@@ -259,11 +263,6 @@ if __name__=="__main__":
         summary(model, input_size=(100, 5, LATENT_DIM, BATCH_SIZE))
         # optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-        # Check if CUDA (NVIDIA GPU support) is available
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        print(f"Using device: {device}")
-        if device.type == 'cuda':
-            print(f"GPU Name: {torch.cuda.get_device_name(0)}")
         # 2. Move model to GPU
         model.to(device)
 
