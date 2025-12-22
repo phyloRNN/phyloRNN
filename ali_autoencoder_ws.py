@@ -15,8 +15,8 @@ from sklearn.preprocessing import StandardScaler
 from torch.utils.data import random_split
 
 WS = True
-TRAIN = False
-predict_training_set = False
+TRAIN = True
+predict_training_set = True
 
 if WS:
     EPOCHS = 30
