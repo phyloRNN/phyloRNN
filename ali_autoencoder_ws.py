@@ -335,8 +335,9 @@ if __name__=="__main__":
         # 1. Re-initialize the model architecture
         model = YInvariantAutoencoder128(latent_dim=LATENT_DIM)
 
-        # 2. Load the weights
-        model.load_state_dict(torch.load(MODEL_PATH))
+        # 2. Load the weights and move to GPU
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.to(device)
 
         # 3. Set to evaluation mode
         model.eval()
@@ -380,17 +381,23 @@ if __name__=="__main__":
     all_embeddings = []
     file_labels = [] # Optional: if you have categories for your files
 
-    model.eval()
     with torch.no_grad():
         for f_path in files:
-            data = torch.from_numpy(parse_file(f_path)).float().unsqueeze(0)
-            latent = model.encode(data.to(device)).cpu()
-            all_embeddings.append(latent.squeeze().numpy())
-            # file_labels.append(get_label(f_path))
-            pn.print_update(f"File: {f_path}")
+            # Load and prepare data
+            data_np = parse_file(f_path)
+            data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
 
-    # Convert to a 2D numpy array [num_samples, latent_dim]
+            # Run through model
+            latent = model.encode(data)
+
+            # Move result back to CPU for numpy/UMAP
+            all_embeddings.append(latent.squeeze().cpu().numpy())
+
+            pn.print_update(f"Processed: {os.path.basename(f_path)}")
+
+    # Convert list to final numpy matrix
     matrix = np.array(all_embeddings)
+
 
     # 2. Run UMAP
     reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
