@@ -473,6 +473,14 @@ if __name__=="__main__":
     dataset = MyBinaryFileDataset(files)
     train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
+    # Collect densities for all files
+    all_densities = []
+    for f_path in files:
+        pn.print_update(f"File: {f_path}")
+        all_densities.append(get_channel_densities(f_path))
+
+    density_matrix = np.array(all_densities)  # Shape: (num_files, 5)
+
     # 1. Extract all embeddings
     all_embeddings = []
     file_labels = [] # Optional: if you have categories for your files
