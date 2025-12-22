@@ -341,7 +341,9 @@ if __name__=="__main__":
 
         # 3. Set to evaluation mode
         model.eval()
-        print("Model loaded successfully!")
+        print("\nModel loaded successfully!")
+        files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
+
 
     # CHECK Y-invariance
 
