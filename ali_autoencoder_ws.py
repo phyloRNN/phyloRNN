@@ -27,7 +27,7 @@ else:
     W_DIR = "/Users/dsilvestro/Desktop/ali"
 
 LATENT_DIM = 128
-BATCH_SIZE = 8 #64
+BATCH_SIZE = 2 #64
 
 # This tells PyTorch to be more efficient with memory segments
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
