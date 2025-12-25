@@ -14,21 +14,14 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import random_split
 
-WS = True
+# training
+EPOCHS = 30
+N_ALI_FILES = 10000
+W_DIR = "ali_embedding"
+LATENT_DIM = 128
+BATCH_SIZE = 1
 TRAIN = True
 predict_training_set = True
-
-if WS:
-    EPOCHS = 30
-    N_ALI_FILES = 10000
-    W_DIR = "/local1/dsilvestro/phyloRNN/aliemb"
-else:
-    EPOCHS = 3
-    N_ALI_FILES = 100
-    W_DIR = "/Users/dsilvestro/Desktop/ali"
-
-LATENT_DIM = 128
-BATCH_SIZE = 1 #64
 
 # This tells PyTorch to be more efficient with memory segments
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
@@ -36,114 +29,6 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # Manually clear the cache before starting
 torch.cuda.empty_cache()
 
-
-class YInvariantAutoencoder(nn.Module):
-    def __init__(self, latent_dim=32):
-        super(YInvariantAutoencoder, self).__init__()
-
-        # ENCODER
-        self.encoder_conv = nn.Sequential(
-            nn.Conv2d(5, 16, 3, padding=1), nn.ReLU(),
-            nn.Conv2d(16, 32, 3, padding=1), nn.ReLU()
-        )
-        # Collapse Y-axis (Invariance) and X-axis (Fixed Embedding)
-        self.adaptive_pool = nn.AdaptiveMaxPool2d((1, 1))
-        self.flatten = nn.Flatten()
-        self.fc_encode = nn.Linear(32, latent_dim)
-
-        # DECODER
-        # Project latent back to a spatial feature map
-        self.fc_decode = nn.Linear(latent_dim, 32)
-        self.decoder_conv = nn.Sequential(
-            nn.ConvTranspose2d(32, 16, 3, padding=1), nn.ReLU(),
-            nn.ConvTranspose2d(16, 5, 3, padding=1),
-            nn.Sigmoid()  # Sigmoid for binary output (0-1 range)
-        )
-
-    def encode(self, x):
-        x = self.encoder_conv(x)
-        x = self.adaptive_pool(x)
-        x = self.flatten(x)
-        return self.fc_encode(x)
-
-    def forward(self, x):
-        # 1. Encode to low-dim vector
-        latent = self.encode(x)
-
-        # 2. Decode back to 2D
-        # For variable sizes, we decode to a fixed "reference" size (e.g., 8x8)
-        # or use the input size if available during training.
-        x_recon = self.fc_decode(latent).view(-1, 32, 1, 1)
-
-        # Upsample to a standard size or target size
-        x_recon = torch.nn.functional.interpolate(x_recon, size=(x.shape[2], x.shape[3]), mode='bilinear')
-        x_recon = self.decoder_conv(x_recon)
-        return x_recon, latent
-
-
-class YInvariantAutoencoder128(nn.Module):
-
-    def __init__(self, latent_dim=128):
-        super(YInvariantAutoencoder128, self).__init__()
-
-        # --- ENCODER ---
-        # We increase the number of filters gradually
-        self.encoder_conv = nn.Sequential(
-            nn.Conv2d(5, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),  # Added for stability with more filters
-            nn.ReLU(),
-
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU()
-        )
-
-        # Collapse Y to 1 (Invariance) and X to 1 (Fixed shape)
-        self.adaptive_pool = nn.AdaptiveMaxPool2d((1, 1))
-
-        # Transition to Latent Space
-        self.fc_encode = nn.Sequential(
-            nn.Linear(128, 256),
-            nn.ReLU(),
-            nn.Linear(256, latent_dim)  # Final 128-dim embedding
-        )
-
-        # --- DECODER ---
-        self.fc_decode = nn.Sequential(
-            nn.Linear(latent_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, 128)
-        )
-
-        self.decoder_conv = nn.Sequential(
-            nn.ConvTranspose2d(128, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 5, 3, padding=1),
-            nn.Sigmoid()
-        )
-
-    def encode(self, x):
-        x = self.encoder_conv(x)
-        x = self.adaptive_pool(x)
-        x = torch.flatten(x, 1)
-        return self.fc_encode(x)
-
-    def forward(self, x):
-        latent = self.encode(x)
-
-        # Decode
-        x_recon = self.fc_decode(latent).view(-1, 128, 1, 1)
-        # Match original spatial dimensions
-        x_recon = torch.nn.functional.interpolate(x_recon, size=(x.shape[2], x.shape[3]), mode='bilinear')
-        x_recon = self.decoder_conv(x_recon)
-
-        return x_recon, latent
 
 
 class YInvariantAutoencoder128groupnorm(nn.Module):
@@ -202,7 +87,7 @@ class YInvariantAutoencoder128groupnorm(nn.Module):
         x_recon = self.decoder_conv(x_recon)
         return x_recon, latent
 
-class MyBinaryFileDataset(Dataset):
+class SeqBinaryFileDataset(Dataset):
     def __init__(self, file_paths):
         self.file_paths = file_paths
 
@@ -276,19 +161,8 @@ def get_channel_densities(file_path):
 
 
 
-# # 1. Initialize your model
-# model = YInvariantAutoencoder(latent_dim=LATENT_DIM)
-#
-# # 2. Print the summary
-# # (Batch_size, Channels, Height, Width)
-# summary(model, input_size=(100, 5, 32, 64))
-#
-
-
-
 if __name__=="__main__":
 
-    # Define the path
     MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
 
     # Check if CUDA (NVIDIA GPU support) is available
@@ -300,7 +174,7 @@ if __name__=="__main__":
     if TRAIN:
         # List of your file paths
         files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
-        dataset = MyBinaryFileDataset(files)
+        dataset = SeqBinaryFileDataset(files)
         # train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
         # validation split
@@ -312,8 +186,6 @@ if __name__=="__main__":
         # Use the same collate_fn you used before if sizes are variable
         train_loader = DataLoader(train_subset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=variable_collate_fn)
         val_loader = DataLoader(val_subset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=variable_collate_fn)
-
-
 
         # Initialize model
         model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
@@ -403,36 +275,7 @@ if __name__=="__main__":
 
 
     # CHECK Y-invariance
-
-    # # check
     # check_invariance(model, files[0])
-    #
-    #
-    # # PREDICT
-    # model.eval()
-    # with torch.no_grad():
-    #     ali_emb = []
-    #     for i in range(len(files)):
-    #         # 1. Load original data
-    #         data_np = parse_file(files[i])  # (5, x, y)
-    #         dat = torch.from_numpy(data_np).float().unsqueeze(0)  # Add batch dim
-    #
-    #         # 3. Get embeddings
-    #         ali_emb.append(np.array(model.encode(dat)))
-    #         print(f"File: {os.path.basename(files[0])}")
-    #
-    #
-    # pred_loader = DataLoader(dataset, batch_size=100, collate_fn=variable_collate_fn)
-    # model.eval()
-    # with torch.no_grad():
-    #     ali_emb = []
-    #     for batch in pred_loader:
-    #         # 1. Load original data
-    #
-    #         # 3. Get embeddings
-    #         ali_emb.append(np.array(model.encode(batch)))
-    #         print(f"File: {os.path.basename(files[0])}")
-
 
     if predict_training_set:
         # 1. Extract all embeddings
@@ -455,25 +298,6 @@ if __name__=="__main__":
 
         # Convert list to final numpy matrix
         matrix = np.array(all_embeddings)
-
-
-        # 2. Run UMAP
-        reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
-        matrix_scaled = StandardScaler().fit_transform(matrix)
-        embedding_2d = reducer.fit_transform(matrix_scaled)
-
-
-        # 3. Plot
-        # plt.figure(figsize=(10, 7))
-        # plt.scatter(embedding_2d[:, 0], embedding_2d[:, 1], alpha=0.7, cmap='viridis')
-        # plt.title("UMAP Projection of Y-Invariant Embeddings")
-        # plt.xlabel("UMAP 1")
-        # plt.ylabel("UMAP 2")
-        # plt.colorbar()
-        # plt.show()
-
-
-        #
 
         # Collect densities for all files
         all_densities = []
@@ -515,10 +339,6 @@ if __name__=="__main__":
         for i in range(5):
             data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
-        # 3.1 Add UMAP embedding
-        data_to_save[f'umap_0'] = embedding_2d[:, 0]
-        data_to_save[f'umap_1'] = embedding_2d[:, 1]
-
         # 4. Create DataFrame and save
         df = pd.DataFrame(data_to_save)
         df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
@@ -526,7 +346,7 @@ if __name__=="__main__":
 
     # TEST SET
     files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
-    dataset = MyBinaryFileDataset(files)
+    dataset = SeqBinaryFileDataset(files)
     train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
     # Collect densities for all files
@@ -554,11 +374,6 @@ if __name__=="__main__":
     # Convert to a 2D numpy array [num_samples, latent_dim]
     matrix = np.array(all_embeddings)
 
-    # 2. Run UMAP
-    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean')
-    matrix_scaled = StandardScaler().fit_transform(matrix)
-    embedding_2d = reducer.fit_transform(matrix_scaled)
-
     # 1. Create a dictionary to hold our data
     data_to_save = {
         'file_name': [os.path.basename(f) for f in files],
@@ -572,41 +387,80 @@ if __name__=="__main__":
     for i in range(5):
         data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
-    # 3.1 Add UMAP embedding
-    data_to_save[f'umap_0'] = embedding_2d[:, 0]
-    data_to_save[f'umap_1'] = embedding_2d[:, 1]
-
     # 4. Create DataFrame and save
     df = pd.DataFrame(data_to_save)
     df.to_csv(os.path.join(W_DIR, 'embeddings_results_test.csv'), index=False)
     print("Saved embeddings to embeddings_results_test.csv")
 
+    # RUN UMAP
+    # 1. Read your saved CSV
+    f = os.path.join(W_DIR, "embeddings_results.csv")
+    data = pd.read_csv(f)
+
+    # 2. Extract the 128 latent variables
+    # Assuming columns are named dim_0, dim_1, ..., dim_127
+    latent_cols = [f'dim_{i}' for i in range(128)]
+    X_train = data[latent_cols].values
+
+    # 3. Initialize and FIT the UMAP reducer on the training set
+    # We keep the reducer object to transform the test set later
+    reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean', random_state=123)
+    embedding_train = reducer.fit_transform(X_train)
+
+    # Update the dataframe with new UMAP coordinates if desired
+    data['umap_0'] = embedding_train[:, 0]
+    data['umap_1'] = embedding_train[:, 1]
+
+    # test set
+    f = os.path.join(W_DIR, 'embeddings_results_test.csv')
+    data_test = pd.read_csv(f)
+    latent_cols = [f'dim_{i}' for i in range(128)]
+    X_test = data_test[latent_cols].values
+
+    # UMAP: using .transform() to project into the same space
+    embedding_test = reducer.transform(X_test)
+    data_test['umap_0'] = embedding_test[:, 0]
+    data_test['umap_1'] = embedding_test[:, 1]
+
+    fig, axes = plt.subplots(2, 5, figsize=(25, 10))
+    channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G', 'freq. gap']
+
+    for i in range(5):
+        scatter = axes[0][i].scatter(
+            data['umap_0'],
+            data['umap_1'],
+            c=data[f'density_ch_{i}'],  # Color by density of current channel
+            cmap='viridis',
+            s=10,
+            alpha=0.6
+        )
+        axes[0][i].set_title(f"{channel_names[i]}")
+        plt.colorbar(scatter, ax=axes[0][i])
+        plt.xlabel("UMAP 1")
+        plt.ylabel("UMAP 2")
+
+    for i in range(5):
+        scatter = axes[1][i].scatter(
+            data_test['umap_0'],
+            data_test['umap_1'],
+            c=data_test[f'density_ch_{i}'],  # Color by density of current channel
+            cmap='viridis',
+            s=10,
+            alpha=0.6
+        )
+        axes[1][i].set_title(f"Test set: {channel_names[i]}")
+        plt.colorbar(scatter, ax=axes[1][i])
+        plt.xlabel("UMAP 1")
+        plt.ylabel("UMAP 2")
+
+    # Save the plot
+    plt.tight_layout()
+    plt.savefig(os.path.join(W_DIR, 'umap_test_projection.png'), dpi=300, bbox_inches='tight')
+
+    # plt.show()
 
 
-f = "/Users/dsilvestro/Desktop/res128gpu/embeddings_results.csv"
-data = pd.read_csv(f)
 
-fig, axes = plt.subplots(1, 5, figsize=(25, 5))
-channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
-
-for i in range(5):
-    scatter = axes[i].scatter(
-        data['dim_3'],
-        data['dim_10'],
-        # data['umap_0'],
-        # data['umap_1'],
-        c=data[f'density_ch_{i}'], # Color by density of current channel
-        cmap='viridis',
-        s=10,
-        alpha=0.6
-    )
-    axes[i].set_title(f"Density: {channel_names[i]}")
-    plt.colorbar(scatter, ax=axes[i])
-    plt.xlabel("UMAP 1")
-    plt.ylabel("UMAP 2")
-
-plt.tight_layout()
-plt.show()
 
 
 
