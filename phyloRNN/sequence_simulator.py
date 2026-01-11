@@ -81,6 +81,11 @@ def simulateDNA(tree, seq_length,
        s.seqgen_path = seqgen_path
     if subs_model == 'GTR':
         s.char_model = dp.interop.seqgen.SeqGen.GTR
+    elif subs_model == 'GTRGAMMA':
+        s.char_model = dp.interop.seqgen.SeqGen.GTR
+        s.gamma_shape = np.random.uniform(0.1, 1)
+        s.gamma_cats = 8
+
     else:
         s.char_model = dp.interop.seqgen.SeqGen.HKY
     #-- OPTIONS
@@ -105,7 +110,7 @@ def simulateDNA(tree, seq_length,
             ti_tv = np.random.uniform(2, 12)
             s.ti_tv = ti_tv
 
-    if subs_model == 'GTR':
+    if subs_model == 'GTR' or subs_model == 'GTRGAMMA':
         if rates is not None:
             s.general_rates = rates
         else:
