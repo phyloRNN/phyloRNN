@@ -38,7 +38,7 @@ class YInvariantAutoencoder128groupnorm(nn.Module):
         # --- ENCODER ---
         self.encoder_conv = nn.Sequential(
             nn.Conv2d(5, 32, kernel_size=3, padding=1),
-            nn.GroupNorm(4, 32),  # GroupNorm works perfectly with Batch Size 1
+            nn.GroupNorm(4, 32),  # GroupNorm works with Batch Size 1
             nn.LeakyReLU(0.2),  # Prevents "dead" neurons
 
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
@@ -459,7 +459,7 @@ if __name__=="__main__":
 
     # plt.show()
 
-#### CHECK AGAINST SIMULATIONS ####
+####------- CHECK AGAINST SIMULATIONS ---------####
 # load model and run UMAP
 MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
 
@@ -609,9 +609,9 @@ plt.scatter(
     alpha=1)
 
 plt.legend(
-    loc="best",           # Automatically finds the emptiest corner
-    markerscale=2.0,      # Makes the dots in the legend bigger/visible
-    frameon=True,         # Adds a box around the legend
+    loc="best",
+    markerscale=2.0,
+    frameon=True,         
     fontsize='small'
 )
 
@@ -619,5 +619,4 @@ plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
 plt.tight_layout()
 plt.savefig(os.path.join(W_DIR, f'umap_sim_projection_{sub_model}.png'), dpi=300, bbox_inches='tight')
-
-plt.show()
+# plt.show()
