@@ -13,10 +13,11 @@ from torchinfo import summary
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import random_split
+import torch.nn.functional as F
 
 # training
 EPOCHS = 30
-N_ALI_FILES = 10000
+N_ALI_FILES = 100 #00
 W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm"
 LATENT_DIM = 128
 BATCH_SIZE = 1
@@ -29,6 +30,36 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 # Manually clear the cache before starting
 torch.cuda.empty_cache()
 
+
+class SpatialAttentionPooling(nn.Module):
+    def __init__(self, in_channels):
+        super(SpatialAttentionPooling, self).__init__()
+        # This layer "looks" at the features to decide importance
+        self.attention = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // 2, kernel_size=1),
+            nn.LeakyReLU(0.2),
+            nn.Conv2d(in_channels // 2, 1, kernel_size=1)
+        )
+
+    def forward(self, x):
+        # x shape: [Batch, Channels, H, W]
+
+        # 1. Compute attention weights
+        # attn_weights shape: [Batch, 1, H, W]
+        attn_weights = self.attention(x)
+
+        # 2. Normalize weights across space (H and W) using Softmax
+        # This ensures all weights sum to 1.0 for each batch
+        batch, channels, h, w = x.shape
+        attn_weights = attn_weights.view(batch, 1, -1)
+        attn_weights = F.softmax(attn_weights, dim=2)
+        attn_weights = attn_weights.view(batch, 1, h, w)
+
+        # 3. Weighted Sum: Multiply input by weights and sum over H and W
+        # weighted_x shape: [Batch, Channels]
+        weighted_x = torch.sum(x * attn_weights, dim=(2, 3))
+
+        return weighted_x
 
 
 class YInvariantAutoencoder128groupnorm(nn.Module):
@@ -51,6 +82,7 @@ class YInvariantAutoencoder128groupnorm(nn.Module):
         )
 
         self.adaptive_pool = nn.AdaptiveMaxPool2d((1, 1))
+        self.attn_pool = SpatialAttentionPooling(in_channels=128)
 
         self.fc_encode = nn.Sequential(
             nn.Linear(128, 256),
@@ -76,8 +108,9 @@ class YInvariantAutoencoder128groupnorm(nn.Module):
 
     def encode(self, x):
         x = self.encoder_conv(x)
-        x = self.adaptive_pool(x)
-        x = torch.flatten(x, 1)
+        x = self.attn_pool(x)  # Returns [Batch, 128]
+        # x = self.adaptive_pool(x)
+        # x = torch.flatten(x, 1)
         return self.fc_encode(x)
 
     def forward(self, x):
@@ -106,6 +139,32 @@ class SeqBinaryFileDataset(Dataset):
 
         return data_tensor
 
+
+def decorrelation_loss(z):
+    """
+    Penalizes correlations between different dimensions in the latent space.
+    z: [Batch Size, Latent Dim (128)]
+    """
+    batch_size, latent_dim = z.shape
+    if batch_size <= 1:
+        return 0.0  # Cannot decorrelate a single sample
+
+    # 1. Center and Normalize the features (subtract mean)
+    z_centered = z - z.mean(dim=0)
+
+    # 2. Calculate the Covariance/Correlation matrix
+    # (z_centered.T @ z_centered) results in a [128, 128] matrix
+    corr_matrix = (z_centered.T @ z_centered) / (batch_size - 1)
+
+    # 3. Create a mask for off-diagonal elements
+    # We want diagonal elements to be 1 (ignored) and off-diagonals to be 0
+    diag = torch.eye(latent_dim).to(z.device)
+
+    # Loss = sum of squares of the off-diagonal elements
+    off_diag = corr_matrix - (corr_matrix * diag)
+    loss = off_diag.pow(2).sum()
+
+    return loss
 
 def variable_collate_fn(batch):
     # This function takes a list of tensors of different sizes
@@ -163,7 +222,7 @@ def get_channel_densities(file_path):
 
 if __name__=="__main__":
 
-    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
+    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder_decorr_attention.pth")
 
     # Check if CUDA (NVIDIA GPU support) is available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,7 +232,7 @@ if __name__=="__main__":
 
     if TRAIN:
         # List of your file paths
-        files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
+        files = glob.glob(os.path.join(W_DIR, "aliemb/fasta_cds/*"))[:N_ALI_FILES]
         dataset = SeqBinaryFileDataset(files)
         # train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
@@ -208,22 +267,65 @@ if __name__=="__main__":
 
         for epoch in range(EPOCHS):
             # --- TRAINING PHASE ---
+            """
+            Training with decorrelation loss (needs batches > 1 to compute correlation)
+            But we need batch size of 1 to avoid having to do padding for alignments of different sizes
+            """
             model.train()
             running_train_loss = 0.0
+            virtual_batch_size = 16
+            accumulated_latents = []
+            accumulated_recon_loss = 0.0  # Track sum of recon losses
+            lambda_decorr = 0.01
+
+            optimizer.zero_grad()  # Move outside the loop
 
             for batch_n, batch in enumerate(train_loader, 1):
                 batch = batch.to(device)
-                optimizer.zero_grad()
 
-                reconstruction, _ = model(batch) # returns: reconstruction, embedding
-                loss = criterion(reconstruction, batch)
-                loss.backward()
-                optimizer.step()
+                # 1. Forward Pass
+                reconstruction, latent = model(batch)
 
-                running_train_loss += loss.item()
-                pn.print_update(f"Epoch {epoch + 1} [Train], Batch {batch_n}, Loss: {loss.item():.4f}")
+                # 2. Calculate Recon Loss for this single item
+                # We divide by virtual_batch_size so the average is correct
+                recon_loss = criterion(reconstruction, batch) / virtual_batch_size
+                accumulated_recon_loss += recon_loss
+                accumulated_latents.append(latent)
+
+                # 3. Process the Virtual Batch
+                if batch_n % virtual_batch_size == 0 or batch_n == len(train_loader):
+                    # Stack all 16 latents [16, 128]
+                    z_batch = torch.cat(accumulated_latents, dim=0)
+
+                    # Calculate Decorrelation Loss
+                    # (Note: ensure your decorrelation_loss handles batch sizes < virtual_batch_size
+                    # for the very last batch of the epoch)
+                    d_loss = decorrelation_loss(z_batch) * lambda_decorr
+
+                    # Combine the accumulated recon losses with the d_loss
+                    total_loss = accumulated_recon_loss + d_loss
+
+                    # 4. Single Backward Pass for all 16 samples
+                    total_loss.backward()
+
+                    # 5. Optimizer Step
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                    # Reset trackers
+                    accumulated_latents = []
+                    accumulated_recon_loss = 0.0
+
+                    # Logging
+                    pn.print_update(
+                        f"Epoch {epoch + 1}, Batch {batch_n}, Loss: {accumulated_recon_loss}:.4f {d_loss}:.4f")
+
+                running_train_loss += recon_loss.item() * virtual_batch_size
 
             avg_train_loss = running_train_loss / len(train_loader)
+
+            #--
+
 
             # --- VALIDATION PHASE ---
             model.eval()
@@ -460,67 +562,78 @@ if __name__=="__main__":
     # plt.show()
 
 ####------- CHECK AGAINST SIMULATIONS ---------####
-# load model and run UMAP
-MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
 
-# Check if CUDA (NVIDIA GPU support) is available
-if torch.backends.mps.is_available():
-    device = torch.device("mps")
-elif torch.cuda.is_available():
-    device = torch.device("cuda")
-else:
-    device = torch.device("cpu")
-print(f"Using device: {device}")
+# SIMULATE DATA with SeqGen
+def simulate_data_seqgen(sub_model='GTRGAMMA'):
+    from Bio.Phylo.TreeConstruction import DistanceTreeConstructor
+    from Bio.Phylo.TreeConstruction import DistanceCalculator
+    from Bio.Phylo.NewickIO import Writer
+    import dendropy as dp
+    constructor = DistanceTreeConstructor()
+    tree_builder = constructor.nj
 
-from Bio.Phylo.TreeConstruction import DistanceTreeConstructor
-from Bio.Phylo.TreeConstruction import DistanceCalculator
-from Bio.Phylo.NewickIO import Writer
-import dendropy as dp
-constructor = DistanceTreeConstructor()
-tree_builder = constructor.nj
+    # test sim ali
 
-# test sim ali
-sub_model = 'GTRGAMMA' #'JC' #  'GTR'
-data_dir = "/Users/dsilvestro/Desktop/ali/"
-rg = np.random.default_rng(42)
-all_files = np.sort(glob.glob(os.path.join(data_dir, "fasta_cds/*")))
+    data_dir = "/Users/dsilvestro/Desktop/ali/"
+    rg = np.random.default_rng(42)
+    all_files = np.sort(glob.glob(os.path.join(data_dir, "fasta_cds/*")))
 
-files = all_files[rg.choice(range(len(all_files)), size=1000, replace=False)]
+    files = all_files[rg.choice(range(len(all_files)), size=1000, replace=False)]
 
-os.makedirs(os.path.join(W_DIR, 'sim_ali_' + sub_model), exist_ok=True)
+    os.makedirs(os.path.join(W_DIR, 'sim_ali_' + sub_model), exist_ok=True)
 
 
-# build NJ tree
-i = 0
-for ali_file in files:
-    aln = dp.DnaCharacterMatrix.get(file=open(ali_file), schema='fasta')
-    bio_msa = pn.biopython_msa_from_charmatrix(aln)
-    calculator = DistanceCalculator('identity')
-    dm = calculator.get_distance(bio_msa)
-    tree = tree_builder(dm)
-    ws = Writer([tree])
-    s = [i for i in ws.to_strings()][0]
-    t = dp.Tree.get_from_string(s, "newick")
-    # t.print_plot()
-    # simulate DNA alignment
-    sim_aln = pn.simulateDNA(t, seq_length=bio_msa.alignment.shape[1],
-                             subs_model=sub_model,
-                             seqgen_path="/Users/dsilvestro/Software/phyloRNN-project/phyloRNN/phyloRNN/bin/seq-gen")
+    # build NJ tree
+    i = 0
+    for ali_file in files:
+        aln = dp.DnaCharacterMatrix.get(file=open(ali_file), schema='fasta')
+        bio_msa = pn.biopython_msa_from_charmatrix(aln)
+        calculator = DistanceCalculator('identity')
+        dm = calculator.get_distance(bio_msa)
+        tree = tree_builder(dm)
+        ws = Writer([tree])
+        s = [i for i in ws.to_strings()][0]
+        t = dp.Tree.get_from_string(s, "newick")
+        # t.print_plot()
+        # simulate DNA alignment
+        sim_aln = pn.simulateDNA(t, seq_length=bio_msa.alignment.shape[1],
+                                 subs_model=sub_model,
+                                 seqgen_path="/Users/dsilvestro/Software/phyloRNN-project/phyloRNN/phyloRNN/bin/seq-gen")
 
-    f_name = os.path.basename(ali_file).split(".")[0] + "_sim.fasta"
-    sim_aln.write(path=os.path.join(W_DIR, 'sim_ali_' + sub_model, f_name), schema='fasta')
-    pn.print_update(f"Simulated: {os.path.basename(f_name)} ({i + 1} / {len(files)})")
-    # t.write_to_path(os.path.join(W_DIR, 'sim_ali', f_name.replace("_sim.fasta", "_nj.tre")), schema="newick")
-    i += 1
+        f_name = os.path.basename(ali_file).split(".")[0] + "_sim.fasta"
+        sim_aln.write(path=os.path.join(W_DIR, 'sim_ali_' + sub_model, f_name), schema='fasta')
+        pn.print_update(f"Simulated: {os.path.basename(f_name)} ({i + 1} / {len(files)})")
+        # t.write_to_path(os.path.join(W_DIR, 'sim_ali', f_name.replace("_sim.fasta", "_nj.tre")), schema="newick")
+        i += 1
+
+sub_models = ['GTRGAMMA', 'JC', 'GTR']
+[simulate_data_seqgen(m) for m in sub_models]
 
 
+sim_files = glob.glob(os.path.join(W_DIR, "simulations/sim_ali_*"))
 
-# load simulated alignment files
+# load simulated SeqGen alignment files
+sub_model = "GTR"
 sim_files = np.sort(glob.glob(os.path.join(W_DIR, f'sim_ali_{sub_model}/*.fasta')))
 # sim_loader = DataLoader(sim_files, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
+# AliGen files
+sub_model = "NT1_NR1_REP1000" #"NT10_NR100_REP1" #"NT1000_NR1_REP1"
+sim_files = np.sort(glob.glob(os.path.join(W_DIR, f"simulations/{sub_model}", f'NT900*.fasta')))
+
+
+
+# load model and run UMAP
+MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
+model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
+device = torch.device("cpu")
+model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+model.to(device)
+
+
 # 1. Extract all embeddings
 all_embeddings_sim = []
+
 
 model.eval()
 with torch.no_grad():
@@ -530,7 +643,7 @@ with torch.no_grad():
         data = torch.from_numpy(data_np).float().unsqueeze(0) #.to(device)
         latent = model.encode(data)
         all_embeddings_sim.append(latent.squeeze().cpu().numpy())
-        pn.print_update(f"Processed: {os.path.basename(f_path)} ({i + 1} / {len(files)})")
+        pn.print_update(f"Processed: {os.path.basename(f_path)} ({i + 1} / {len(sim_files)})")
         i += 1
 
 # Convert to a 2D numpy array [num_samples, latent_dim]
@@ -580,7 +693,7 @@ data_sim['umap_1'] = embedding_sim[:, 1]
 
 
 # Subset the dataframe (to re-plot
-target_files = [os.path.basename(f) for f in files]
+target_files = [os.path.basename(f) for f in sim_files]
 subset_df = data[data['file_name'].isin(target_files)]
 
 # fig, axes = plt.subplots(2, 5, figsize=(25, 10))
@@ -611,7 +724,7 @@ plt.scatter(
 plt.legend(
     loc="best",
     markerscale=2.0,
-    frameon=True,         
+    frameon=True,
     fontsize='small'
 )
 
@@ -619,4 +732,6 @@ plt.xlabel("UMAP 1")
 plt.ylabel("UMAP 2")
 plt.tight_layout()
 plt.savefig(os.path.join(W_DIR, f'umap_sim_projection_{sub_model}.png'), dpi=300, bbox_inches='tight')
-# plt.show()
+plt.close()
+
+
