@@ -26,6 +26,8 @@ predict_training_set = True
 
 # This tells PyTorch to be more efficient with memory segments
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# Fix fragmentation before starting
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 # Manually clear the cache before starting
 torch.cuda.empty_cache()
@@ -275,7 +277,6 @@ if __name__=="__main__":
             model.train()
             running_train_loss = 0.0
             virtual_batch_size = 16
-            accumulated_latents = []
             accumulated_recon_loss = 0.0  # Track sum of recon losses
             lambda_decorr = 1.0
 
@@ -283,8 +284,9 @@ if __name__=="__main__":
 
             # Initialize a running buffer on your GPU
             running_mu = torch.zeros(128).to(device)
-            momentum = 0.5  # How much to remember past batches
+            momentum = 0.9  # How much to remember past batches
             diag_mask = torch.eye(128).to(device)
+            latent_buffer = []  # To store detached latents for decorrelation
 
             for batch_n, batch in enumerate(train_loader, 1):
                 batch = batch.to(device)
@@ -292,51 +294,53 @@ if __name__=="__main__":
                 # 1. Forward Pass
                 reconstruction, latent = model(batch)
 
-                # 2. Calculate Recon Loss for this single item
-                # We divide by virtual_batch_size so the average is correct
+                # 2. Reconstruction Loss - BACKPROP IMMEDIATELY
+                # This frees the heavy activation memory for the conv layers!
                 recon_loss = criterion(reconstruction, batch) / virtual_batch_size
-                accumulated_recon_loss += recon_loss
-                # accumulated_latents.append(latent)
+                recon_loss.backward(retain_graph=True)  # retain_graph keeps the 'latent' part alive for decorr
 
-                # 3. Process the Virtual Batch
+                # 3. Decorrelation Loss (using a buffer of detached past latents)
+                d_loss = torch.tensor(0.0).to(device)
+                if len(latent_buffer) > 0:
+                    # Stack current LIVE latent with DETACHED past latents
+                    past_latents = torch.cat(latent_buffer, dim=0)
+                    z_combined = torch.cat([latent, past_latents], dim=0)
+
+                    # Center the data
+                    z_centered = z_combined - running_mu
+
+                    # Unbiased covariance estimate: (Z.T @ Z) / (N - 1)
+                    # Note: if len(z_combined) is 1, this would div by zero,
+                    # but our if-statement ensures len > 0.
+                    n_samples = z_combined.size(0)
+                    corr_matrix = (z_centered.T @ z_centered) / (n_samples - 1)
+
+                    # Penalize off-diagonals
+                    off_diagonals = corr_matrix * (1 - diag_mask)
+
+                    # Use MEAN for stability so lambda_decorr isn't a tiny decimal
+                    d_loss = off_diagonals.pow(2).sum() # .mean()
+
+                    # SCALE: Divide by virtual_batch_size to match recon_loss scaling
+                    (d_loss * lambda_decorr / virtual_batch_size).backward()
+                else:
+                    pass
+
+                # 4. Update the Buffer and Running Stats (Detached)
+                with torch.no_grad():
+                    running_mu = momentum * running_mu + (1 - momentum) * latent.detach().mean(dim=0)
+                    latent_buffer.append(latent.detach())  # Detach is KEY for memory
+                    if len(latent_buffer) > virtual_batch_size:
+                        latent_buffer.pop(0)
+
+                # 5. Step Optimizer every X batches
                 if batch_n % virtual_batch_size == 0 or batch_n == len(train_loader):
-
-                    # Decorrelate current latent against the RUNNING covariance
-                    # Update running mean (for centering)
-                    with torch.no_grad():
-                        running_mu = momentum * running_mu + (1 - momentum) * latent.detach().mean(dim=0)
-
-                    # Center the current latent vector
-                    z_centered = latent - running_mu  # Shape [1, 128]
-
-                    # Calculate the outer product: [128, 1] @ [1, 128] = [128, 128] matrix
-                    # This matrix represents the "correlation contribution" of this sample
-                    corr_contribution = z_centered.T @ z_centered
-
-                    # Create mask for off-diagonal elements
-                    off_diagonals = corr_contribution * (1 - diag_mask)
-
-                    # Use Mean Squared Error on off-diagonals to keep the values manageable
-                    # We want these off-diagonal values to be as close to 0 as possible
-                    d_loss = off_diagonals.pow(2).sum()
-
-                    # Combine the accumulated recon losses with the d_loss
-                    total_loss = accumulated_recon_loss + (lambda_decorr * d_loss)
-
-                    # 4. Single Backward Pass for all 16 samples
-                    total_loss.backward()
-
-                    # 5. Optimizer Step
                     optimizer.step()
                     optimizer.zero_grad()
 
                     # Logging
                     pn.print_update(
-                        f"Epoch {epoch + 1}, Batch {batch_n}, Loss: {accumulated_recon_loss.item():.4f}, decorr loss: {d_loss.item():.4f}")
-
-                    # Reset trackers
-                    # accumulated_latents = []
-                    accumulated_recon_loss = 0.0
+                        f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item() * virtual_batch_size:.4f}, D-Loss: {d_loss.item():.6f}")
 
                 running_train_loss += recon_loss.item() * virtual_batch_size
 
