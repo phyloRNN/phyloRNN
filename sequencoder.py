@@ -18,7 +18,7 @@ import torch.nn.functional as F
 # training
 EPOCHS = 30
 N_ALI_FILES = 100 #00
-W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm"
+W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/ali"
 LATENT_DIM = 128
 BATCH_SIZE = 1
 TRAIN = True
@@ -220,6 +220,7 @@ def get_channel_densities(file_path):
 
 
 
+
 if __name__=="__main__":
 
     MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder_decorr_attention.pth")
@@ -232,7 +233,7 @@ if __name__=="__main__":
 
     if TRAIN:
         # List of your file paths
-        files = glob.glob(os.path.join(W_DIR, "aliemb/fasta_cds/*"))[:N_ALI_FILES]
+        files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
         dataset = SeqBinaryFileDataset(files)
         # train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
@@ -276,9 +277,14 @@ if __name__=="__main__":
             virtual_batch_size = 16
             accumulated_latents = []
             accumulated_recon_loss = 0.0  # Track sum of recon losses
-            lambda_decorr = 0.01
+            lambda_decorr = 1.0
 
             optimizer.zero_grad()  # Move outside the loop
+
+            # Initialize a running buffer on your GPU
+            running_mu = torch.zeros(128).to(device)
+            momentum = 0.5  # How much to remember past batches
+            diag_mask = torch.eye(128).to(device)
 
             for batch_n, batch in enumerate(train_loader, 1):
                 batch = batch.to(device)
@@ -290,20 +296,32 @@ if __name__=="__main__":
                 # We divide by virtual_batch_size so the average is correct
                 recon_loss = criterion(reconstruction, batch) / virtual_batch_size
                 accumulated_recon_loss += recon_loss
-                accumulated_latents.append(latent)
+                # accumulated_latents.append(latent)
 
                 # 3. Process the Virtual Batch
                 if batch_n % virtual_batch_size == 0 or batch_n == len(train_loader):
-                    # Stack all 16 latents [16, 128]
-                    z_batch = torch.cat(accumulated_latents, dim=0)
 
-                    # Calculate Decorrelation Loss
-                    # (Note: ensure your decorrelation_loss handles batch sizes < virtual_batch_size
-                    # for the very last batch of the epoch)
-                    d_loss = decorrelation_loss(z_batch) * lambda_decorr
+                    # Decorrelate current latent against the RUNNING covariance
+                    # Update running mean (for centering)
+                    with torch.no_grad():
+                        running_mu = momentum * running_mu + (1 - momentum) * latent.detach().mean(dim=0)
+
+                    # Center the current latent vector
+                    z_centered = latent - running_mu  # Shape [1, 128]
+
+                    # Calculate the outer product: [128, 1] @ [1, 128] = [128, 128] matrix
+                    # This matrix represents the "correlation contribution" of this sample
+                    corr_contribution = z_centered.T @ z_centered
+
+                    # Create mask for off-diagonal elements
+                    off_diagonals = corr_contribution * (1 - diag_mask)
+
+                    # Use Mean Squared Error on off-diagonals to keep the values manageable
+                    # We want these off-diagonal values to be as close to 0 as possible
+                    d_loss = off_diagonals.pow(2).sum()
 
                     # Combine the accumulated recon losses with the d_loss
-                    total_loss = accumulated_recon_loss + d_loss
+                    total_loss = accumulated_recon_loss + (lambda_decorr * d_loss)
 
                     # 4. Single Backward Pass for all 16 samples
                     total_loss.backward()
@@ -312,13 +330,13 @@ if __name__=="__main__":
                     optimizer.step()
                     optimizer.zero_grad()
 
-                    # Reset trackers
-                    accumulated_latents = []
-                    accumulated_recon_loss = 0.0
-
                     # Logging
                     pn.print_update(
-                        f"Epoch {epoch + 1}, Batch {batch_n}, Loss: {accumulated_recon_loss}:.4f {d_loss}:.4f")
+                        f"Epoch {epoch + 1}, Batch {batch_n}, Loss: {accumulated_recon_loss.item():.4f}, decorr loss: {d_loss.item():.4f}")
+
+                    # Reset trackers
+                    # accumulated_latents = []
+                    accumulated_recon_loss = 0.0
 
                 running_train_loss += recon_loss.item() * virtual_batch_size
 
