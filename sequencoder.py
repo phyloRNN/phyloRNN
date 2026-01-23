@@ -14,11 +14,17 @@ import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from torch.utils.data import random_split
 import torch.nn.functional as F
+from pathlib import Path
+import time, tifffile, sys
 
 # training
 EPOCHS = 30
 N_ALI_FILES = 100 #00
-W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/ali"
+try:
+    W_DIR = str(Path(__file__) / "aliemb")
+except:
+    W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/ali"
+
 LATENT_DIM = 128
 BATCH_SIZE = 1
 TRAIN = True
@@ -364,9 +370,11 @@ if __name__=="__main__":
                     # Logging
                     with torch.no_grad():
                         max_corr = off_diagonals.abs().max().item()
-                    pn.print_update(
-                        f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item() * virtual_batch_size:.3f}, D-Loss: {d_loss.item():.3f} Max Corr: {max_corr:.3f}")
-                        print(f"")
+                        mean_corr = off_diagonals.abs().mean().item()
+
+                    s = f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item() * virtual_batch_size:.3f}"
+                    s = s + f" D-Loss: {d_loss.item():.3f} Max/Avg Corr: {max_corr:.2f} {mean_corr:.2f}"
+                    pn.print_update(s)
 
                 running_train_loss += recon_loss.item() * virtual_batch_size
 
