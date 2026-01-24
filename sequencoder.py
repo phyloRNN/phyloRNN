@@ -294,93 +294,67 @@ if __name__=="__main__":
             diag_mask = torch.eye(128).to(device)
             latent_buffer = []  # To store detached latents for decorrelation
 
+            # ... (Top of loop stays the same) ...
+
             for batch_n, batch in enumerate(train_loader, 1):
                 batch = batch.to(device)
 
                 # 1. Forward Pass
                 reconstruction, latent = model(batch)
 
-                # 2. Reconstruction Loss - BACKPROP IMMEDIATELY
-                # This frees the heavy activation memory for the conv layers!
-                recon_loss = criterion(reconstruction, batch) / virtual_batch_size
-                recon_loss.backward(retain_graph=True)  # retain_graph keeps the 'latent' part alive for decorr
+                # 2. Compute Reconstruction Loss
+                recon_loss = criterion(reconstruction, batch)
 
-                # 3. Decorrelation Loss (using a buffer of detached past latents)
-                # 3. Decorrelation Loss (Standardized)
+                # 3. Compute Decorrelation Loss
                 d_loss = torch.tensor(0.0).to(device)
                 if len(latent_buffer) > 0:
                     past_latents = torch.cat(latent_buffer, dim=0)
                     z_combined = torch.cat([latent, past_latents], dim=0)
 
-                    # 1. Standardize the latents (Zero Mean, Unit Variance)
-                    # Add a tiny epsilon (1e-8) to prevent division by zero
+                    # Standardize
                     mu = z_combined.mean(dim=0)
                     std = z_combined.std(dim=0) + 1e-8
                     z_std = (z_combined - mu) / std
 
-                    # 2. Calculate Correlation Matrix: (Z_std.T @ Z_std) / (N - 1)
-                    n_samples = z_std.size(0)
-                    corr_matrix = (z_std.T @ z_std) / (n_samples - 1)
-
-                    # 3. Penalize Off-Diagonals
-                    # Using ABSOLUTE value instead of SQUARE can also help if the signal is too weak
+                    corr_matrix = (z_std.T @ z_std) / (z_std.size(0) - 1)
                     off_diagonals = corr_matrix * (1 - diag_mask)
-                    d_loss = off_diagonals.abs().mean()  # Mean Absolute Error is more robust here
+                    d_loss = off_diagonals.abs().mean()
 
-                    # 4. Backprop (Scaled)
-                    (d_loss * lambda_decorr / virtual_batch_size).backward()
-                # d_loss = torch.tensor(0.0).to(device)
-                # if len(latent_buffer) > 0:
-                #     # Stack current LIVE latent with DETACHED past latents
-                #     past_latents = torch.cat(latent_buffer, dim=0)
-                #     z_combined = torch.cat([latent, past_latents], dim=0)
-                #
-                #     # Center the data
-                #     z_centered = z_combined - running_mu
-                #
-                #     # Unbiased covariance estimate: (Z.T @ Z) / (N - 1)
-                #     # Note: if len(z_combined) is 1, this would div by zero,
-                #     # but our if-statement ensures len > 0.
-                #     n_samples = z_combined.size(0)
-                #     corr_matrix = (z_centered.T @ z_centered) / (n_samples - 1)
-                #
-                #     # Penalize off-diagonals
-                #     off_diagonals = corr_matrix * (1 - diag_mask)
-                #
-                #     # Use mean for stability so lambda_decorr isn't a tiny decimal
-                #     d_loss = off_diagonals.pow(2).sum() # .mean()
-                #
-                #     # SCALE: Divide by virtual_batch_size to match recon_loss scaling
-                #     (d_loss * lambda_decorr / virtual_batch_size).backward()
-                else:
-                    pass
+                # 4. BACKWARD (Memory-Safe)
+                total_batch_loss = (recon_loss / virtual_batch_size) + (d_loss * lambda_decorr / virtual_batch_size)
+                total_batch_loss.backward()
 
-                # 4. Update the Buffer and Running Stats (Detached)
+                # 5. Buffer Management
                 with torch.no_grad():
                     running_mu = momentum * running_mu + (1 - momentum) * latent.detach().mean(dim=0)
-                    latent_buffer.append(latent.detach())  # Detach is KEY for memory
+                    latent_buffer.append(latent.detach())
                     if len(latent_buffer) > virtual_batch_size:
                         latent_buffer.pop(0)
 
-                # 5. Step Optimizer every X batches
+                # 6. Step Optimizer & Activity Monitor (Every 16 batches)
                 if batch_n % virtual_batch_size == 0 or batch_n == len(train_loader):
+                    # --- NEW: Activity Monitor ---
+                    with torch.no_grad():
+                        # Check how much each of the 128 dimensions is actually moving
+                        # We use the detached buffer we just filled
+                        all_latents = torch.cat(latent_buffer, dim=0)
+                        std_per_dim = all_latents.std(dim=0)
+                        active_dims = (std_per_dim > 1e-4).sum().item()
+                        avg_var = std_per_dim.mean().item()
+                        max_c = off_diagonals.abs().max().item() if len(latent_buffer) > 1 else 0
+                        mean_corr = off_diagonals.abs().mean().item()
+
+                    # Optimizer Step
                     optimizer.step()
                     optimizer.zero_grad()
 
                     # Logging
-                    with torch.no_grad():
-                        max_corr = off_diagonals.abs().max().item()
-                        mean_corr = off_diagonals.abs().mean().item()
-
-                    s = f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item() * virtual_batch_size:.3f}"
-                    s = s + f" D-Loss: {d_loss.item():.3f} Max/Avg Corr: {max_corr:.2f} {mean_corr:.2f}"
+                    s = f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item():.3f}"
+                    s = s + f" D-Loss: {d_loss.item():.3f} Max/Avg Corr: {max_c:.2f} {mean_corr:.2f}"
+                    s = s + f" 1Active: {active_dims}/128"
                     pn.print_update(s)
 
-                running_train_loss += recon_loss.item() * virtual_batch_size
-
-            avg_train_loss = running_train_loss / len(train_loader)
-            #--
-
+                running_train_loss += recon_loss.item()
 
             # --- VALIDATION PHASE ---
             model.eval()
