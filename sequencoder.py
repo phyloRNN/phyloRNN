@@ -351,7 +351,7 @@ if __name__=="__main__":
                     # Logging
                     s = f"Epoch {epoch + 1}, Batch {batch_n}, R-Loss: {recon_loss.item():.3f}"
                     s = s + f" D-Loss: {d_loss.item():.3f} Max/Avg Corr: {max_c:.2f} {mean_corr:.2f}"
-                    s = s + f" 1Active: {active_dims}/128"
+                    s = s + f" Active: {active_dims}/128"
                     pn.print_update(s)
 
                 running_train_loss += recon_loss.item()
@@ -367,8 +367,9 @@ if __name__=="__main__":
                     running_val_loss += v_loss.item()
 
             avg_val_loss = running_val_loss / len(val_loader)
+            avg_train_loss = running_train_loss / len(train_loader)
 
-            print(f"\nEpoch {epoch + 1} Summary | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+            print(f"\nEpoch {epoch + 1} Summary | Train R-Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
 
             # --- EARLY STOPPING LOGIC ---
             if avg_val_loss < best_val_loss:
