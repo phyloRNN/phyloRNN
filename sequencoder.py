@@ -226,7 +226,16 @@ def get_channel_densities(file_path):
     return densities
 
 
+def count_parameters(model):
+    # sum up all elements in every parameter tensor
+    total_params = sum(p.numel() for p in model.parameters())
 
+    # sum up only those that require gradients (useful if you freeze layers)
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"Total Parameters: {total_params:,}")
+    print(f"Trainable Parameters: {trainable_params:,}")
+    return total_params
 
 
 if __name__=="__main__":
@@ -591,177 +600,121 @@ if __name__=="__main__":
 
     # plt.show()
 
-####------- CHECK AGAINST SIMULATIONS ---------####
-
-# SIMULATE DATA with SeqGen
-def simulate_data_seqgen(sub_model='GTRGAMMA'):
-    from Bio.Phylo.TreeConstruction import DistanceTreeConstructor
-    from Bio.Phylo.TreeConstruction import DistanceCalculator
-    from Bio.Phylo.NewickIO import Writer
-    import dendropy as dp
-    constructor = DistanceTreeConstructor()
-    tree_builder = constructor.nj
-
-    # test sim ali
-
-    data_dir = "/Users/dsilvestro/Desktop/ali/"
-    rg = np.random.default_rng(42)
-    all_files = np.sort(glob.glob(os.path.join(data_dir, "fasta_cds/*")))
-
-    files = all_files[rg.choice(range(len(all_files)), size=1000, replace=False)]
-
-    os.makedirs(os.path.join(W_DIR, 'sim_ali_' + sub_model), exist_ok=True)
-
-
-    # build NJ tree
-    i = 0
-    for ali_file in files:
-        aln = dp.DnaCharacterMatrix.get(file=open(ali_file), schema='fasta')
-        bio_msa = pn.biopython_msa_from_charmatrix(aln)
-        calculator = DistanceCalculator('identity')
-        dm = calculator.get_distance(bio_msa)
-        tree = tree_builder(dm)
-        ws = Writer([tree])
-        s = [i for i in ws.to_strings()][0]
-        t = dp.Tree.get_from_string(s, "newick")
-        # t.print_plot()
-        # simulate DNA alignment
-        sim_aln = pn.simulateDNA(t, seq_length=bio_msa.alignment.shape[1],
-                                 subs_model=sub_model,
-                                 seqgen_path="/Users/dsilvestro/Software/phyloRNN-project/phyloRNN/phyloRNN/bin/seq-gen")
-
-        f_name = os.path.basename(ali_file).split(".")[0] + "_sim.fasta"
-        sim_aln.write(path=os.path.join(W_DIR, 'sim_ali_' + sub_model, f_name), schema='fasta')
-        pn.print_update(f"Simulated: {os.path.basename(f_name)} ({i + 1} / {len(files)})")
-        # t.write_to_path(os.path.join(W_DIR, 'sim_ali', f_name.replace("_sim.fasta", "_nj.tre")), schema="newick")
-        i += 1
-
-sub_models = ['GTRGAMMA', 'JC', 'GTR']
-[simulate_data_seqgen(m) for m in sub_models]
-
-
-sim_files = glob.glob(os.path.join(W_DIR, "simulations/sim_ali_*"))
-
-# load simulated SeqGen alignment files
-sub_model = "GTR"
-sim_files = np.sort(glob.glob(os.path.join(W_DIR, f'sim_ali_{sub_model}/*.fasta')))
-# sim_loader = DataLoader(sim_files, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
-
-# AliGen files
-sub_model = "NT1_NR1_REP1000" #"NT10_NR100_REP1" #"NT1000_NR1_REP1"
-sim_files = np.sort(glob.glob(os.path.join(W_DIR, f"simulations/{sub_model}", f'NT900*.fasta')))
 
 
 
-# load model and run UMAP
-MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder.pth")
-model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
-device = torch.device("cpu")
-model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-model.to(device)
 
 
-# 1. Extract all embeddings
-all_embeddings_sim = []
+    ## PLOT MODEL ARCHITECTURE
+    # dummy_input = torch.randn(batch_size, channels, num_taxa, seq_length).to(device)
+    dummy_input = torch.randn(1, 5, 25, 100).to(device)
+    torch.onnx.export(model, dummy_input, os.path.join(W_DIR, "model.onnx"))
+
+    from torchview import draw_graph
+    # 1. Initialize your specific model
+    # Ensure your class definition for YInvariantAutoencoder128groupnorm
+    # and SpatialAttentionPooling are in the script or imported.
+    # We'll use a standard "Batch of 1" with 5 DNA channels,
+    # 20 taxa (rows), and 500 sites (columns).
+    dummy_input = torch.randn(1, 5, 20, 500).to(device)
+
+    # 3. Generate the Graph
+    model_graph = draw_graph(
+        model,
+        input_data=dummy_input,
+        graph_name="Sequencoder_ArchitectureLR",
+        graph_dir='LR',          # 'TB' for Top-Bottom, 'LR' for Left-Right
+        expand_nested=True,
+        depth=4,
+        show_shapes=True,
+        device=device
+    )
+
+    # 4. Save to PDF
+    # This will create 'Sequencoder_Architecture.pdf' in your current directory
+    model_graph.visual_graph.render(format="pdf", directory=W_DIR,cleanup=True)
+
+    count_parameters(model)
 
 
-model.eval()
-with torch.no_grad():
-    i = 0
-    for f_path in sim_files:
-        data_np = parse_file(f_path)
-        data = torch.from_numpy(data_np).float().unsqueeze(0) #.to(device)
-        latent = model.encode(data)
-        all_embeddings_sim.append(latent.squeeze().cpu().numpy())
-        pn.print_update(f"Processed: {os.path.basename(f_path)} ({i + 1} / {len(sim_files)})")
-        i += 1
+    ### check attention map
+    import matplotlib.pyplot as plt
+    import torch.nn.functional as F
+    import numpy as np
 
-# Convert to a 2D numpy array [num_samples, latent_dim]
-data_sim = np.array(all_embeddings_sim)
+    W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/"
+    RES_DIR = os.path.join(W_DIR, "res25012026/sim_res")
+    MODEL_PATH = os.path.join(W_DIR, "res25012026/y_invariant_encoder_decorr_attention.pth")
 
-# Save sim embeddings
-data_to_save = {
-    'file_name': [os.path.basename(f) for f in sim_files],
-}
-
-# 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
-for i in range(data_sim.shape[1]):
-    data_to_save[f'dim_{i}'] = data_sim[:, i]
-
-# 3. Create DataFrame and save
-df = pd.DataFrame(data_to_save)
-df.to_csv(os.path.join(W_DIR, f'embeddings_sim_data_{sub_model}.csv'), index=False)
-print(f"Saved embeddings to embeddings_sim_data_{sub_model}.csv")
-
-# RUN UMAP
-# 1. Read your saved CSV
-f = os.path.join(W_DIR, "embeddings_results.csv")
-data = pd.read_csv(f)
-# 2. Extract the 128 latent variables
-latent_cols = [f'dim_{i}' for i in range(128)]
-X_train = data[latent_cols].values
-
-# 3. Initialize and FIT the UMAP reducer on the training set
-# We keep the reducer object to transform the test set later
-reducer = umap.UMAP(n_neighbors=15, min_dist=0.1, metric='euclidean', random_state=123)
-embedding_train = reducer.fit_transform(X_train)
-
-# Update the dataframe with new UMAP coordinates if desired
-data['umap_0'] = embedding_train[:, 0]
-data['umap_1'] = embedding_train[:, 1]
-
-# sim data set
-f = os.path.join(W_DIR, f'embeddings_sim_data_{sub_model}.csv')
-data_sim = pd.read_csv(f)
-latent_cols = [f'dim_{i}' for i in range(128)]
-X_sim = data_sim[latent_cols].values
-
-# UMAP: using .transform() to project into the same space
-embedding_sim = reducer.transform(X_sim)
-data_sim['umap_0'] = embedding_sim[:, 0]
-data_sim['umap_1'] = embedding_sim[:, 1]
+    # Check if CUDA (NVIDIA GPU support) is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    if device.type == 'cuda':
+        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
 
-# Subset the dataframe (to re-plot
-target_files = [os.path.basename(f) for f in sim_files]
-subset_df = data[data['file_name'].isin(target_files)]
+    # List of your file paths
+    f = np.sort(glob.glob(os.path.join(W_DIR, "ali/fasta_cds/*")))[0]
+    files  = [f, f, f]
+    dataset = SeqBinaryFileDataset(files)
+    data_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=variable_collate_fn)
 
-# fig, axes = plt.subplots(2, 5, figsize=(25, 10))
+    # Initialize model
+    # 1. Re-initialize the model architecture
+    model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
+    # 2. Load the weights and move to GPU
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+    model.to(device)
 
-# Save the plot
+    # 3. Set to evaluation mode
+    model.eval()
 
-plt.scatter(
-    data['umap_0'],
-    data['umap_1'],
-    s=10, c="#6baed6",
-    label="All alignments",
-    alpha=1)
-
-plt.scatter(
-    subset_df['umap_0'],
-    subset_df['umap_1'],
-    s=10, color="#08519c",
-    label="Selected alignments",
-    alpha=1)
-
-plt.scatter(
-    data_sim['umap_0'],
-    data_sim['umap_1'],
-    s=10, c="orange",
-    label="Simulated alignments",
-    alpha=1)
-
-plt.legend(
-    loc="best",
-    markerscale=2.0,
-    frameon=True,
-    fontsize='small'
-)
-
-plt.xlabel("UMAP 1")
-plt.ylabel("UMAP 2")
-plt.tight_layout()
-plt.savefig(os.path.join(W_DIR, f'umap_sim_projection_{sub_model}.png'), dpi=300, bbox_inches='tight')
-plt.close()
+    def hook_fn(module, input, output):
+        # output is the result of self.attention(x) before the Softmax
+        captured_weights.append(output.detach())
 
 
+    # 1. Setup
+    num_samples = 3
+    captured_weights = []
+    data_iter = iter(data_loader)
+    model.eval()
+
+    handle = model.attn_pool.attention.register_forward_hook(hook_fn)
+
+    # 2. Collect samples (since batch size is 1, we loop the loader)
+    plot_data = []
+    for _ in range(num_samples):
+        try:
+            batch = next(data_iter).to(device)
+            with torch.no_grad():
+                _ = model(batch)
+
+            # Pull the last weight added to the list
+            raw_attn = captured_weights[-1]
+            b, c, h, w = raw_attn.shape
+
+            # Softmax over the spatial dimensions (H*W)
+            attn_norm = F.softmax(raw_attn.view(b, 1, -1), dim=2).view(h, w).cpu().numpy()
+            plot_data.append(attn_norm)
+        except StopIteration:
+            break
+
+    # 3. Plotting
+    fig, axes = plt.subplots(num_samples, 1, figsize=(15, 3 * num_samples))
+
+    # Handle the case where axes isn't a list (if num_samples = 1)
+    if num_samples == 1: axes = [axes]
+
+    for i, attn_map in enumerate(plot_data):
+        im = axes[i].imshow(attn_map, aspect='auto', cmap='magma')  # 'magma' is often clearer for small peaks
+        axes[i].set_title(f"file: {os.path.basename(files[i])} | Attention Map")
+        axes[i].set_ylabel("Taxa")
+        fig.colorbar(im, ax=axes[i], label="Weight")
+
+    plt.tight_layout()
+    plt.xlabel("Sequence Position (Sites)")
+    plt.show()
+
+    # 4. Cleanup
+    handle.remove()

@@ -27,3 +27,5 @@ from .predict import *
 from . import simulate
 from .simulate import *
 
+from . import sim_utilities
+from .sim_utilities import *
