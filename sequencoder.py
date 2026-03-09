@@ -19,11 +19,12 @@ import time, tifffile, sys
 
 # training
 EPOCHS = 30
-N_ALI_FILES = 10000
+N_ALI_FILES = 10
 try:
-    W_DIR = str(Path(__file__).parent / "aliemb")
+    W_DIR = str(Path(__file__).parent / "OrthoMamv12")
 except:
     W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/ali"
+    W_DIR = "/Users/dsilvestro/Documents/Projects/Ongoing/GenAli/data/OrthoMamv12/omm_filtered_NT_CDS"
 
 LATENT_DIM = 128
 BATCH_SIZE = 1
@@ -223,6 +224,8 @@ def get_channel_densities(file_path):
     # Calculate mean for each of the 5 channels
     # This represents the percentage of '1's in that channel
     densities = data.mean(axis=(1, 2))
+    # add alignment length
+    densities = np.append(densities, data.shape[-1])
     return densities
 
 
@@ -448,25 +451,6 @@ if __name__=="__main__":
 
         density_matrix = np.array(all_densities) # Shape: (num_files, 5)
 
-        # fig, axes = plt.subplots(1, 5, figsize=(25, 5))
-        # channel_names = ['f(A)', 'f(C)', 'f(T)', 'f(G)', 'f(gap)']
-        #
-        # for i in range(5):
-        #     scatter = axes[i].scatter(
-        #         embedding_2d[:, 0],
-        #         embedding_2d[:, 1],
-        #         c=density_matrix[:, i], # Color by density of current channel
-        #         cmap='viridis',
-        #         s=10,
-        #         alpha=0.6
-        #     )
-        #     axes[i].set_title(f"Density: {channel_names[i]}")
-        #     plt.colorbar(scatter, ax=axes[i])
-        #
-        # plt.tight_layout()
-        # plt.show()
-
-
         # 1. Create a dictionary to hold our data
         data_to_save = {
             'file_name': [os.path.basename(f) for f in files],
@@ -477,13 +461,13 @@ if __name__=="__main__":
             data_to_save[f'dim_{i}'] = matrix[:, i]
 
         # 3. Add our density metadata
-        for i in range(5):
+        for i in range(6):
             data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
         # 4. Create DataFrame and save
         df = pd.DataFrame(data_to_save)
         df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
-        print("Saved embeddings to embeddings_results.csv")
+        print("\nSaved embeddings to embeddings_results.csv")
 
     # TEST SET
     files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
@@ -525,13 +509,13 @@ if __name__=="__main__":
         data_to_save[f'dim_{i}'] = matrix[:, i]
 
     # 3. Add our density metadata
-    for i in range(5):
+    for i in range(6):
         data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
     # 4. Create DataFrame and save
     df = pd.DataFrame(data_to_save)
     df.to_csv(os.path.join(W_DIR, 'embeddings_results_test.csv'), index=False)
-    print("Saved embeddings to embeddings_results_test.csv")
+    print("\nSaved embeddings to embeddings_results_test.csv")
 
     # RUN UMAP
     # 1. Read your saved CSV
@@ -563,10 +547,10 @@ if __name__=="__main__":
     data_test['umap_0'] = embedding_test[:, 0]
     data_test['umap_1'] = embedding_test[:, 1]
 
-    fig, axes = plt.subplots(2, 5, figsize=(25, 10))
-    channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G', 'freq. gap']
+    fig, axes = plt.subplots(2, 6, figsize=(30, 10))
+    channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G', 'freq. gap', 'ali. length']
 
-    for i in range(5):
+    for i in range(6):
         scatter = axes[0][i].scatter(
             data['umap_0'],
             data['umap_1'],
