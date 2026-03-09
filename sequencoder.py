@@ -1,4 +1,4 @@
-import os
+# import os
 # Disable TensorFlow's GPU hogging before anything else loads
 # os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 # os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
@@ -36,6 +36,7 @@ except:
 
 LATENT_DIM = 128
 BATCH_SIZE = 1
+DEBUG = False
 TRAIN = True
 predict_training_set = True
 
@@ -329,7 +330,8 @@ if __name__=="__main__":
                 batch = batch.to(device)
 
                 # 1. Forward Pass
-                print(f"DEBUG: Processing file with shape {batch.shape}")
+                if DEBUG:
+                    print(f"DEBUG: Processing file with shape {batch.shape}")
                 reconstruction, latent = model(batch)
 
                 # 2. Compute Reconstruction Loss
