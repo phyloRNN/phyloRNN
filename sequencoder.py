@@ -1,8 +1,8 @@
 import os
 # Disable TensorFlow's GPU hogging before anything else loads
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+# os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 import torch
 import torch.nn as nn

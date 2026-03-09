@@ -2,10 +2,6 @@ import dendropy
 from Bio import AlignIO
 import re
 from .utilities import *
-try:
-    import tensorflow as tf
-except:
-    print("tensorflow not installed")
 import numpy as np
 
 
