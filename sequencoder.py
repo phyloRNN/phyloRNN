@@ -18,8 +18,8 @@ from pathlib import Path
 import time, tifffile, sys
 
 # training
-EPOCHS = 30
-N_ALI_FILES = 10
+EPOCHS = 1000
+N_ALI_FILES = 10000
 try:
     W_DIR = str(Path(__file__).parent / "OrthoMamv12")
 except:
