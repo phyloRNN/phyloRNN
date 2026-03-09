@@ -17,7 +17,6 @@ import torch.nn.functional as F
 from pathlib import Path
 import time, tifffile, sys
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0' # Ensure only the right GPU is seen
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true' # Tell TF not to hog memory
 
 # training
