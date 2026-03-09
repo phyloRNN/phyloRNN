@@ -4,7 +4,10 @@ import re
 from .rate_estimator import *
 from .sequence_simulator import pca_from_ali
 from .utilities import *
-import tensorflow as tf
+try:
+    import tensorflow as tf
+except:
+    print("tensorflow not installed")
 import numpy as np
 
 
