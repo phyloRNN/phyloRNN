@@ -1,18 +1,22 @@
 import sys
 
 import numpy as np
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras.layers import Layer
-from tensorflow.keras import metrics
+try:
+    import tensorflow as tf
+    from tensorflow import keras
+    from tensorflow.keras import layers
+    from tensorflow.keras.layers import Layer
+    from tensorflow.keras import metrics
+    from keras.layers import Activation
+    from tensorflow.python.keras.utils import generic_utils
+except:
+    print("tensorflow not installed")
+
 np.set_printoptions(suppress=True, precision=3)
 import os
 import pickle as pkl
 import scipy.stats
 
-from keras.layers import Activation
-from tensorflow.python.keras.utils import generic_utils
 class rnn_config():
     def __init__(self,
                  lstm_nodes: list = None,
