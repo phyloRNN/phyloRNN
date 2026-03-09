@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 import os, glob
-from phyloRNN import utilities as pn
+import utils as pn
 parse_file = pn.parse_alignment_file_gaps3D
 from torch.nn.utils.rnn import pad_sequence
 import numpy as np
