@@ -2,7 +2,6 @@ import os
 # Disable TensorFlow's GPU hogging before anything else loads
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
-# If you don't need TF at all, you can even hide the GPU from it:
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
 import torch
