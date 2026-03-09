@@ -86,9 +86,12 @@ class rnn_config():
 #### test
 
 def build_rnn_model_tf211(model_config: rnn_config,
-                    optimizer=keras.optimizers.RMSprop(1e-3),
+                    optimizer=None,
                     print_summary=False
                     ):
+
+    if optimizer is None:
+        optimizer  = keras.optimizers.RMSprop(1e-3)
     ali_input = keras.Input(shape=(model_config.n_sites, model_config.n_species * model_config.n_onehot,),
                             name="sequence_data")
     if model_config.n_eigenvec:
