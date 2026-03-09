@@ -271,9 +271,11 @@ def build_rnn_model_tf211(model_config: rnn_config,
 
 
 def build_rnn_model_generator(model_config: rnn_config,
-                    optimizer=keras.optimizers.RMSprop(1e-3),
+                    optimizer=None,
                     print_summary=False
                     ):
+    if optimizer is None:
+        optimizer = keras.optimizers.RMSprop(1e-3)
 
     # ali_input = layers.Input(shape=(model_config.n_sites,
     #                                model_config.n_species * model_config.n_onehot,),
@@ -482,9 +484,11 @@ def build_rnn_model_generator(model_config: rnn_config,
 
 
 def build_rnn_model(model_config: rnn_config,
-                    optimizer=keras.optimizers.RMSprop(1e-3),
+                    optimizer=None,
                     print_summary=False
                     ):
+    if optimizer is None:
+        optimizer = keras.optimizers.RMSprop(1e-3)
     ali_input = keras.Input(shape=(model_config.n_sites, model_config.n_species * model_config.n_onehot,),
                             name="sequence_data")
     if model_config.n_eigenvec:
@@ -665,8 +669,11 @@ def build_rnn_multiple_output_prm_share(n_sites, n_species,
                                         sub_models=None,
                                         loss_weights=None,
                                         nodes = None,
-                                        optimizer=keras.optimizers.RMSprop(1e-3)
+                                        optimizer=None
+
                               ):
+    if optimizer is None:
+        optimizer = keras.optimizers.RMSprop(1e-3)
     if nodes is None:
         nodes = [64, 8, 8, 12, 32, 64]
     if sub_models is None:
