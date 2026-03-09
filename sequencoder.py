@@ -28,11 +28,11 @@ os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true' # Tell TF not to hog memory
 # training
 EPOCHS = 1000
 N_ALI_FILES = 10000
+MAX_SITES = 10000
 try:
     W_DIR = str(Path(__file__).parent / "OrthoMamv12")
 except:
-    W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/ali"
-    W_DIR = "/Users/dsilvestro/Documents/Projects/Ongoing/GenAli/data/OrthoMamv12/omm_filtered_NT_CDS"
+    W_DIR = "/Users/dsilvestro/Documents/Projects/Ongoing/GenAli/data/OrthoMamv12"
 
 LATENT_DIM = 128
 BATCH_SIZE = 1
@@ -151,6 +151,14 @@ class SeqBinaryFileDataset(Dataset):
         # Expects output shape: (5, x, y)
         data_np = parse_file(file_path)
 
+        # Trim if too long
+        if data_np.shape[2] > MAX_SITES:
+            # Option A: Take the first 10k
+            # data_np = data_np[:, :, :MAX_SITES]
+            # Option B: Take a random 10k window
+            start = np.random.randint(0, data_np.shape[-1] - MAX_SITES)
+            data_np = data_np[:, :, start:start+MAX_SITES]
+
         # Convert to Torch Tensor
         data_tensor = torch.from_numpy(data_np).float()
 
@@ -234,6 +242,7 @@ def get_channel_densities(file_path):
     densities = data.mean(axis=(1, 2))
     # add alignment length
     densities = np.append(densities, data.shape[-1])
+    densities = np.append(densities, int(data.shape[-1] > MAX_SITES))
     return densities
 
 
@@ -320,7 +329,7 @@ if __name__=="__main__":
                 batch = batch.to(device)
 
                 # 1. Forward Pass
-                # print(f"DEBUG: Processing file with shape {batch.shape}")
+                print(f"DEBUG: Processing file with shape {batch.shape}")
                 reconstruction, latent = model(batch)
 
                 # 2. Compute Reconstruction Loss
@@ -470,7 +479,7 @@ if __name__=="__main__":
             data_to_save[f'dim_{i}'] = matrix[:, i]
 
         # 3. Add our density metadata
-        for i in range(6):
+        for i in range(density_matrix.shape[1]):
             data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
         # 4. Create DataFrame and save
@@ -518,7 +527,7 @@ if __name__=="__main__":
         data_to_save[f'dim_{i}'] = matrix[:, i]
 
     # 3. Add our density metadata
-    for i in range(6):
+    for i in range(density_matrix.shape[1]):
         data_to_save[f'density_ch_{i}'] = density_matrix[:, i]
 
     # 4. Create DataFrame and save
@@ -556,10 +565,11 @@ if __name__=="__main__":
     data_test['umap_0'] = embedding_test[:, 0]
     data_test['umap_1'] = embedding_test[:, 1]
 
-    fig, axes = plt.subplots(2, 6, figsize=(30, 10))
-    channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G', 'freq. gap', 'ali. length']
+    fig, axes = plt.subplots(2, density_matrix.shape[1], figsize=(density_matrix.shape[1] * 5.1, 10))
+    channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G',
+                     'freq. gap', 'ali. length', 'oversize ali']
 
-    for i in range(6):
+    for i in range(density_matrix.shape[1]):
         scatter = axes[0][i].scatter(
             data['umap_0'],
             data['umap_1'],
@@ -573,7 +583,7 @@ if __name__=="__main__":
         plt.xlabel("UMAP 1")
         plt.ylabel("UMAP 2")
 
-    for i in range(5):
+    for i in range(density_matrix.shape[1]):
         scatter = axes[1][i].scatter(
             data_test['umap_0'],
             data_test['umap_1'],
@@ -590,7 +600,7 @@ if __name__=="__main__":
     # Save the plot
     plt.tight_layout()
     plt.savefig(os.path.join(W_DIR, 'umap_test_projection.png'), dpi=300, bbox_inches='tight')
-
+    plt.close()
     # plt.show()
 
 
