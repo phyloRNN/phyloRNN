@@ -321,7 +321,7 @@ if __name__=="__main__":
                 batch = batch.to(device)
 
                 # 1. Forward Pass
-                print(f"DEBUG: Processing file with shape {batch.shape}")
+                # print(f"DEBUG: Processing file with shape {batch.shape}")
                 reconstruction, latent = model(batch)
 
                 # 2. Compute Reconstruction Loss
