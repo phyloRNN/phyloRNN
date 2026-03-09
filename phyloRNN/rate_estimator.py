@@ -1,7 +1,10 @@
 import subprocess
 import numpy as np
 import pandas as pd
-from ete3 import Tree
+try:
+    from ete3 import Tree
+except:
+    print("ete3 not installed")
 
 def parse_phyml_file(outputfile, n_sites):
     sites = []
