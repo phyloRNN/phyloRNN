@@ -23,16 +23,23 @@ import torch.nn.functional as F
 from pathlib import Path
 import time, tifffile, sys
 
-os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true' # Tell TF not to hog memory
+# Tell TF not to hog memory
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 # training
 EPOCHS = 1000
 N_ALI_FILES = 10000
 MAX_SITES = 10000
+DROP_GAPS = True
 try:
     W_DIR = str(Path(__file__).parent / "OrthoMamv12")
 except:
     W_DIR = "/Users/dsilvestro/Documents/Projects/Ongoing/GenAli/data/OrthoMamv12"
+
+DATA_DIR = os.path.join(W_DIR, "fasta_cds")
+RESULT_DIR = os.path.join(W_DIR, "orthomam12res_nogap")
+os.makedirs(RESULT_DIR, exist_ok=True)
+MODEL_PATH = os.path.join(RESULT_DIR, "y_invariant_encoder_decorr_attention_nogap.pth")
 
 LATENT_DIM = 128
 BATCH_SIZE = 1
@@ -150,7 +157,7 @@ class SeqBinaryFileDataset(Dataset):
 
         # Call your existing function
         # Expects output shape: (5, x, y)
-        data_np = parse_file(file_path)
+        data_np = parse_file(file_path, drop_gaps=DROP_GAPS)
 
         # Trim if too long
         if data_np.shape[2] > MAX_SITES:
@@ -216,7 +223,7 @@ def check_invariance(model, file_path):
     model.eval()
     with torch.no_grad():
         # 1. Load original data
-        data_np = parse_file(file_path)  # (5, x, y)
+        data_np = parse_file(file_path, drop_gaps=DROP_GAPS)  # (5, x, y)
         original_tensor = torch.from_numpy(data_np).float().unsqueeze(0)  # Add batch dim
 
         # 2. Create a vertically shifted version (shifting along the y-axis)
@@ -237,7 +244,7 @@ def check_invariance(model, file_path):
 
 
 def get_channel_densities(file_path):
-    data = parse_file(file_path) # (5, x, y)
+    data = parse_file(file_path, drop_gaps=DROP_GAPS) # (5, x, y)
     # Calculate mean for each of the 5 channels
     # This represents the percentage of '1's in that channel
     densities = data.mean(axis=(1, 2))
@@ -261,7 +268,6 @@ def count_parameters(model):
 
 if __name__=="__main__":
 
-    MODEL_PATH = os.path.join(W_DIR, "y_invariant_encoder_decorr_attention.pth")
 
     # Check if CUDA (NVIDIA GPU support) is available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -271,7 +277,7 @@ if __name__=="__main__":
 
     if TRAIN:
         # List of your file paths
-        files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
+        files = glob.glob(os.path.join(DATA_DIR, "*"))[:N_ALI_FILES]
         dataset = SeqBinaryFileDataset(files)
         # train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
@@ -435,7 +441,7 @@ if __name__=="__main__":
         # 3. Set to evaluation mode
         model.eval()
         print("\nModel loaded successfully!")
-        files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[:N_ALI_FILES]
+        files = glob.glob(os.path.join(DATA_DIR, "*"))[:N_ALI_FILES]
 
 
     # CHECK Y-invariance
@@ -445,11 +451,12 @@ if __name__=="__main__":
         # 1. Extract all embeddings
         all_embeddings = []
         file_labels = [] # Optional: if you have categories for your files
+        files = glob.glob(os.path.join(DATA_DIR, "*"))[:N_ALI_FILES]
 
         with torch.no_grad():
             for f_path in files:
                 # Load and prepare data
-                data_np = parse_file(f_path)
+                data_np = parse_file(f_path, drop_gaps=DROP_GAPS)
                 data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
 
                 # Run through model
@@ -486,17 +493,17 @@ if __name__=="__main__":
 
         # 4. Create DataFrame and save
         df = pd.DataFrame(data_to_save)
-        df.to_csv(os.path.join(W_DIR, 'embeddings_results.csv'), index=False)
+        df.to_csv(os.path.join(RESULT_DIR, 'embeddings_results.csv'), index=False)
         print("\nSaved embeddings to embeddings_results.csv")
 
     # TEST SET
-    files = glob.glob(os.path.join(W_DIR, "fasta_cds/*"))[N_ALI_FILES:]
-    dataset = SeqBinaryFileDataset(files)
+    test_files = glob.glob(os.path.join(DATA_DIR, "*"))[:N_ALI_FILES]
+    dataset = SeqBinaryFileDataset(test_files)
     train_loader = DataLoader(dataset, batch_size=BATCH_SIZE, collate_fn=variable_collate_fn)
 
     # Collect densities for all files
     all_densities = []
-    for f_path in files:
+    for f_path in test_files:
         pn.print_update(f"File: {f_path}")
         all_densities.append(get_channel_densities(f_path))
 
@@ -508,9 +515,9 @@ if __name__=="__main__":
 
     model.eval()
     with torch.no_grad():
-        for f_path in files:
+        for f_path in test_files:
 
-            data_np = parse_file(f_path)
+            data_np = parse_file(f_path, drop_gaps=DROP_GAPS)
             data = torch.from_numpy(data_np).float().unsqueeze(0).to(device)
             latent = model.encode(data)
             all_embeddings.append(latent.squeeze().cpu().numpy())
@@ -521,7 +528,7 @@ if __name__=="__main__":
 
     # 1. Create a dictionary to hold our data
     data_to_save = {
-        'file_name': [os.path.basename(f) for f in files],
+        'file_name': [os.path.basename(f) for f in test_files],
     }
 
     # 2. Add the embedding dimensions (e.g., dim_0, dim_1, ...)
@@ -534,12 +541,12 @@ if __name__=="__main__":
 
     # 4. Create DataFrame and save
     df = pd.DataFrame(data_to_save)
-    df.to_csv(os.path.join(W_DIR, 'embeddings_results_test.csv'), index=False)
+    df.to_csv(os.path.join(RESULT_DIR, 'embeddings_results_test.csv'), index=False)
     print("\nSaved embeddings to embeddings_results_test.csv")
 
     # RUN UMAP
     # 1. Read your saved CSV
-    f = os.path.join(W_DIR, "embeddings_results.csv")
+    f = os.path.join(RESULT_DIR, "embeddings_results.csv")
     data = pd.read_csv(f)
 
     # 2. Extract the 128 latent variables
@@ -557,7 +564,7 @@ if __name__=="__main__":
     data['umap_1'] = embedding_train[:, 1]
 
     # test set
-    f = os.path.join(W_DIR, 'embeddings_results_test.csv')
+    f = os.path.join(RESULT_DIR, 'embeddings_results_test.csv')
     data_test = pd.read_csv(f)
     latent_cols = [f'dim_{i}' for i in range(128)]
     X_test = data_test[latent_cols].values
@@ -567,159 +574,229 @@ if __name__=="__main__":
     data_test['umap_0'] = embedding_test[:, 0]
     data_test['umap_1'] = embedding_test[:, 1]
 
-    fig, axes = plt.subplots(2, density_matrix.shape[1], figsize=(density_matrix.shape[1] * 5.1, 10))
+    n_cols = 7
     channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G',
                      'freq. gap', 'ali. length', 'oversize ali']
 
-    for i in range(density_matrix.shape[1]):
-        scatter = axes[0][i].scatter(
-            data['umap_0'],
-            data['umap_1'],
-            c=data[f'density_ch_{i}'],  # Color by density of current channel
-            cmap='viridis',
-            s=10,
-            alpha=0.6
+    # --- FIGURE 1: UMAP SCATTERPLOTS (2 rows: Train, Test) ---
+    fig_umap, axes_umap = plt.subplots(2, n_cols, figsize=(n_cols * 5.3, 10))
+
+    # --- FIGURE 2: HISTOGRAMS (2 rows: Train, Test) ---
+    # We use a smaller height (figsize 6) since histograms are shorter
+    fig_hist, axes_hist = plt.subplots(2, n_cols, figsize=(n_cols * 4.2, 6))
+
+    for i in range(n_cols):
+        # 1. Process Training Data
+        if channel_names[i] == 'ali. length':
+            c_train = np.log10(data[f'density_ch_{i}'])
+            label = "log10(ali. length)"
+        else:
+            c_train = data[f'density_ch_{i}']
+            label = channel_names[i]
+
+        # --- UMAP Train (Fig 1, Row 0) ---
+        scatter0 = axes_umap[0, i].scatter(data['umap_0'], data['umap_1'], c=c_train, cmap='viridis', s=10, alpha=0.6)
+        axes_umap[0, i].set_title(f"Train: {channel_names[i]}")
+        scatter0.set_alpha(1.0)
+        fig_umap.colorbar(scatter0, ax=axes_umap[0, i])
+        scatter0.set_alpha(0.7)
+
+        # --- Hist Train (Fig 2, Row 0) ---
+        axes_hist[0, i].hist(c_train, bins=30, color='skyblue', edgecolor='black', alpha=0.7)
+        axes_hist[0, i].set_title(f"Train Dist: {label}")
+        axes_hist[0, i].set_ylabel("Count")
+
+        # 2. Process Test Data
+        if channel_names[i] == 'ali. length':
+            c_test = np.log10(data_test[f'density_ch_{i}'])
+        else:
+            c_test = data_test[f'density_ch_{i}']
+
+        # --- UMAP Test (Fig 1, Row 1) ---
+        scatter1 = axes_umap[1, i].scatter(data_test['umap_0'], data_test['umap_1'], c=c_test, cmap='viridis', s=10,
+                                           alpha=0.6)
+        axes_umap[1, i].set_title(f"Test: {channel_names[i]}")
+        scatter1.set_alpha(1.0)
+        fig_umap.colorbar(scatter1, ax=axes_umap[1, i])
+        scatter1.set_alpha(0.7)
+
+        # --- Hist Test (Fig 2, Row 1) ---
+        axes_hist[1, i].hist(c_test, bins=30, color='salmon', edgecolor='black', alpha=0.7)
+        axes_hist[1, i].set_title(f"Test Dist: {label}")
+        axes_hist[1, i].set_ylabel("Count")
+
+    # --- Finalize and Save UMAPs ---
+    fig_umap.tight_layout()
+    fig_umap.savefig(os.path.join(RESULT_DIR, 'umap_test_projection.png'), dpi=300, bbox_inches='tight')
+
+    # --- Finalize and Save Histograms ---
+    fig_hist.tight_layout()
+    fig_hist.savefig(os.path.join(RESULT_DIR, 'density_distributions.png'), dpi=300, bbox_inches='tight')
+
+    # Close both to free up memory
+    plt.close(fig_umap)
+    plt.close(fig_hist)
+
+    # fig, axes = plt.subplots(2, density_matrix.shape[1], figsize=(density_matrix.shape[1] * 5.3, 10))
+    # channel_names = ['freq. A', 'freq C ', 'freq. T', 'freq. G',
+    #                  'freq. gap', 'ali. length', 'oversize ali']
+    #
+    # for i in range(density_matrix.shape[1]):
+    #     if channel_names[i] == 'ali. length':
+    #         c = np.log10(data[f'density_ch_{i}'])
+    #     else:
+    #         c = data[f'density_ch_{i}']
+    #
+    #     scatter = axes[0][i].scatter(
+    #         data['umap_0'],
+    #         data['umap_1'],
+    #         c=c,  # Color by density of current channel
+    #         cmap='viridis',
+    #         s=10,
+    #         alpha=0.6
+    #     )
+    #     axes[0][i].set_title(f"{channel_names[i]}")
+    #     plt.colorbar(scatter, ax=axes[0][i])
+    #     plt.xlabel("UMAP 1")
+    #     plt.ylabel("UMAP 2")
+    #
+    # for i in range(density_matrix.shape[1]):
+    #
+    #     if channel_names[i] == 'ali. length':
+    #         c = np.log10(data_test[f'density_ch_{i}'])
+    #     else:
+    #         c = data_test[f'density_ch_{i}']
+    #
+    #     scatter = axes[1][i].scatter(
+    #         data_test['umap_0'],
+    #         data_test['umap_1'],
+    #         c=c,  # Color by density of current channel
+    #         cmap='viridis',
+    #         s=10,
+    #         alpha=0.6
+    #     )
+    #     axes[1][i].set_title(f"Test set: {channel_names[i]}")
+    #     plt.colorbar(scatter, ax=axes[1][i])
+    #     plt.xlabel("UMAP 1")
+    #     plt.ylabel("UMAP 2")
+    #
+    # # Save the plot
+    # plt.tight_layout()
+    # plt.savefig(os.path.join(RESULT_DIR, 'umap_test_projection.png'), dpi=500, bbox_inches='tight')
+    # plt.close()
+    # # plt.show()
+
+
+    plot_model = False
+    if plot_model:
+        ## PLOT MODEL ARCHITECTURE
+        # dummy_input = torch.randn(batch_size, channels, num_taxa, seq_length).to(device)
+        dummy_input = torch.randn(1, 5, 25, 100).to(device)
+        torch.onnx.export(model, dummy_input, os.path.join(MODEL_PATH, "model.onnx"))
+
+        from torchview import draw_graph
+        # 1. Initialize your specific model
+        # Ensure your class definition for YInvariantAutoencoder128groupnorm
+        # and SpatialAttentionPooling are in the script or imported.
+        # We'll use a standard "Batch of 1" with 5 DNA channels,
+        # 20 taxa (rows), and 500 sites (columns).
+        dummy_input = torch.randn(1, 5, 20, 500).to(device)
+
+        # 3. Generate the Graph
+        model_graph = draw_graph(
+            model,
+            input_data=dummy_input,
+            graph_name="Sequencoder_ArchitectureLR",
+            graph_dir='LR',          # 'TB' for Top-Bottom, 'LR' for Left-Right
+            expand_nested=True,
+            depth=4,
+            show_shapes=True,
+            device=device
         )
-        axes[0][i].set_title(f"{channel_names[i]}")
-        plt.colorbar(scatter, ax=axes[0][i])
-        plt.xlabel("UMAP 1")
-        plt.ylabel("UMAP 2")
 
-    for i in range(density_matrix.shape[1]):
-        scatter = axes[1][i].scatter(
-            data_test['umap_0'],
-            data_test['umap_1'],
-            c=data_test[f'density_ch_{i}'],  # Color by density of current channel
-            cmap='viridis',
-            s=10,
-            alpha=0.6
-        )
-        axes[1][i].set_title(f"Test set: {channel_names[i]}")
-        plt.colorbar(scatter, ax=axes[1][i])
-        plt.xlabel("UMAP 1")
-        plt.ylabel("UMAP 2")
+        # 4. Save to PDF
+        # This will create 'Sequencoder_Architecture.pdf' in your current directory
+        model_graph.visual_graph.render(format="pdf", directory=MODEL_PATH,cleanup=True)
 
-    # Save the plot
-    plt.tight_layout()
-    plt.savefig(os.path.join(W_DIR, 'umap_test_projection.png'), dpi=300, bbox_inches='tight')
-    plt.close()
-    # plt.show()
+        count_parameters(model)
+
+    plot_attention_map = False
+    if plot_attention_map:
+        ### check attention map
+        import matplotlib.pyplot as plt
+        import torch.nn.functional as F
+        import numpy as np
 
 
+        # Check if CUDA (NVIDIA GPU support) is available
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"Using device: {device}")
+        if device.type == 'cuda':
+            print(f"GPU Name: {torch.cuda.get_device_name(0)}")
 
 
+        # List of your file paths
+        f = np.sort(glob.glob(os.path.join(DATA_DIR, "*")))[0]
+        files  = [f, f, f]
+        dataset = SeqBinaryFileDataset(files)
+        data_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=variable_collate_fn)
+
+        # Initialize model
+        # 1. Re-initialize the model architecture
+        model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
+        # 2. Load the weights and move to GPU
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.to(device)
+
+        # 3. Set to evaluation mode
+        model.eval()
+
+        def hook_fn(module, input, output):
+            # output is the result of self.attention(x) before the Softmax
+            captured_weights.append(output.detach())
 
 
-    ## PLOT MODEL ARCHITECTURE
-    # dummy_input = torch.randn(batch_size, channels, num_taxa, seq_length).to(device)
-    dummy_input = torch.randn(1, 5, 25, 100).to(device)
-    torch.onnx.export(model, dummy_input, os.path.join(W_DIR, "model.onnx"))
+        # 1. Setup
+        num_samples = 3
+        captured_weights = []
+        data_iter = iter(data_loader)
+        model.eval()
 
-    from torchview import draw_graph
-    # 1. Initialize your specific model
-    # Ensure your class definition for YInvariantAutoencoder128groupnorm
-    # and SpatialAttentionPooling are in the script or imported.
-    # We'll use a standard "Batch of 1" with 5 DNA channels,
-    # 20 taxa (rows), and 500 sites (columns).
-    dummy_input = torch.randn(1, 5, 20, 500).to(device)
+        handle = model.attn_pool.attention.register_forward_hook(hook_fn)
 
-    # 3. Generate the Graph
-    model_graph = draw_graph(
-        model,
-        input_data=dummy_input,
-        graph_name="Sequencoder_ArchitectureLR",
-        graph_dir='LR',          # 'TB' for Top-Bottom, 'LR' for Left-Right
-        expand_nested=True,
-        depth=4,
-        show_shapes=True,
-        device=device
-    )
+        # 2. Collect samples (since batch size is 1, we loop the loader)
+        plot_data = []
+        for _ in range(num_samples):
+            try:
+                batch = next(data_iter).to(device)
+                with torch.no_grad():
+                    _ = model(batch)
 
-    # 4. Save to PDF
-    # This will create 'Sequencoder_Architecture.pdf' in your current directory
-    model_graph.visual_graph.render(format="pdf", directory=W_DIR,cleanup=True)
+                # Pull the last weight added to the list
+                raw_attn = captured_weights[-1]
+                b, c, h, w = raw_attn.shape
 
-    count_parameters(model)
+                # Softmax over the spatial dimensions (H*W)
+                attn_norm = F.softmax(raw_attn.view(b, 1, -1), dim=2).view(h, w).cpu().numpy()
+                plot_data.append(attn_norm)
+            except StopIteration:
+                break
 
+        # 3. Plotting
+        fig, axes = plt.subplots(num_samples, 1, figsize=(15, 3 * num_samples))
 
-    ### check attention map
-    import matplotlib.pyplot as plt
-    import torch.nn.functional as F
-    import numpy as np
+        # Handle the case where axes isn't a list (if num_samples = 1)
+        if num_samples == 1: axes = [axes]
 
-    W_DIR = "/Users/dsilvestro/Desktop/res128groupnorm/"
-    RES_DIR = os.path.join(W_DIR, "res25012026/sim_res")
-    MODEL_PATH = os.path.join(W_DIR, "res25012026/y_invariant_encoder_decorr_attention.pth")
+        for i, attn_map in enumerate(plot_data):
+            im = axes[i].imshow(attn_map, aspect='auto', cmap='magma')  # 'magma' is often clearer for small peaks
+            axes[i].set_title(f"file: {os.path.basename(files[i])} | Attention Map")
+            axes[i].set_ylabel("Taxa")
+            fig.colorbar(im, ax=axes[i], label="Weight")
 
-    # Check if CUDA (NVIDIA GPU support) is available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    if device.type == 'cuda':
-        print(f"GPU Name: {torch.cuda.get_device_name(0)}")
+        plt.tight_layout()
+        plt.xlabel("Sequence Position (Sites)")
+        plt.show()
 
-
-    # List of your file paths
-    f = np.sort(glob.glob(os.path.join(W_DIR, "ali/fasta_cds/*")))[0]
-    files  = [f, f, f]
-    dataset = SeqBinaryFileDataset(files)
-    data_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=False, collate_fn=variable_collate_fn)
-
-    # Initialize model
-    # 1. Re-initialize the model architecture
-    model = YInvariantAutoencoder128groupnorm(latent_dim=LATENT_DIM)
-    # 2. Load the weights and move to GPU
-    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
-    model.to(device)
-
-    # 3. Set to evaluation mode
-    model.eval()
-
-    def hook_fn(module, input, output):
-        # output is the result of self.attention(x) before the Softmax
-        captured_weights.append(output.detach())
-
-
-    # 1. Setup
-    num_samples = 3
-    captured_weights = []
-    data_iter = iter(data_loader)
-    model.eval()
-
-    handle = model.attn_pool.attention.register_forward_hook(hook_fn)
-
-    # 2. Collect samples (since batch size is 1, we loop the loader)
-    plot_data = []
-    for _ in range(num_samples):
-        try:
-            batch = next(data_iter).to(device)
-            with torch.no_grad():
-                _ = model(batch)
-
-            # Pull the last weight added to the list
-            raw_attn = captured_weights[-1]
-            b, c, h, w = raw_attn.shape
-
-            # Softmax over the spatial dimensions (H*W)
-            attn_norm = F.softmax(raw_attn.view(b, 1, -1), dim=2).view(h, w).cpu().numpy()
-            plot_data.append(attn_norm)
-        except StopIteration:
-            break
-
-    # 3. Plotting
-    fig, axes = plt.subplots(num_samples, 1, figsize=(15, 3 * num_samples))
-
-    # Handle the case where axes isn't a list (if num_samples = 1)
-    if num_samples == 1: axes = [axes]
-
-    for i, attn_map in enumerate(plot_data):
-        im = axes[i].imshow(attn_map, aspect='auto', cmap='magma')  # 'magma' is often clearer for small peaks
-        axes[i].set_title(f"file: {os.path.basename(files[i])} | Attention Map")
-        axes[i].set_ylabel("Taxa")
-        fig.colorbar(im, ax=axes[i], label="Weight")
-
-    plt.tight_layout()
-    plt.xlabel("Sequence Position (Sites)")
-    plt.show()
-
-    # 4. Cleanup
-    handle.remove()
+        # 4. Cleanup
+        handle.remove()

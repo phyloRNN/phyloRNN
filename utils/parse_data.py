@@ -374,17 +374,22 @@ def load_phylornn_npz(sim_file=None,
 
 
 def parse_alignment_file_gaps3D(ali_file,
-                         schema="fasta"
-                         ):
+                                schema="fasta",
+                                drop_gaps=False
+                                ):
     # read fasta file
     dna = dendropy.DnaCharacterMatrix.get(file=open(ali_file), schema=schema)
-
     # convert to pandas dataframe
     ali = df_from_charmatrix(dna, categorical=False)
     # one hot encoding
-    l = ["A", "C", "G", "T", "-"  ]
+    l = ["A", "C", "G", "T", "-"]
     ali_3d = np.array([np.array(ali == i).astype(int) for i in l])
-    return ali_3d
+
+    if drop_gaps:
+        mask = np.sum(ali_3d[4], axis=0) == 0
+        ali_3d = ali_3d[:, :, mask]
+
+    return ali_3d  # shape: (5, species, nucleotides)
 
 
 
