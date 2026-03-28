@@ -387,7 +387,12 @@ def parse_alignment_file_gaps3D(ali_file,
 
     if drop_gaps:
         mask = np.sum(ali_3d[4], axis=0) == 0
-        ali_3d = ali_3d[:, :, mask]
+        if np.sum(mask) < 10:
+            print(ali_file, "gaps couldn't be dropped")
+            pass
+        else:
+            ali_3d = ali_3d[:, :, mask]
+
 
     return ali_3d  # shape: (5, species, nucleotides)
 
